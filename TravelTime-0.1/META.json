@@ -1,0 +1,46 @@
+{
+   "abstract" : "Calculate fixed travel times for Commercial Moving Truck",
+   "author" : [
+      "Austin Kenny <aibistin.cionnaith@gmail.com>"
+   ],
+   "dynamic_config" : 0,
+   "generated_by" : "Dist::Zilla version 4.300030, CPAN::Meta::Converter version 2.120921",
+   "license" : [
+      "perl_5"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "TravelTime",
+   "prereqs" : {
+      "runtime" : {
+         "requires" : {
+            "Carp" : "0",
+            "Dancer2" : "0",
+            "Data::Dump" : "0",
+            "Google::Travel::Matrix" : "0",
+            "Modern::Perl" : "0",
+            "Mover::Form::Travel::Matrix" : "0",
+            "Template" : "0",
+            "Try::Tiny" : "0"
+         }
+      },
+      "test" : {
+         "requires" : {
+            "Dancer2::Test" : "0",
+            "ExtUtils::MakeMaker" : "0",
+            "File::Find" : "0",
+            "File::Spec::Functions" : "0",
+            "File::Temp" : "0",
+            "List::Util" : "0",
+            "Test::More" : "0",
+            "strict" : "0",
+            "warnings" : "0"
+         }
+      }
+   },
+   "release_status" : "stable",
+   "version" : "0.1"
+}
+

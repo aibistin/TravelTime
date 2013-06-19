@@ -1,0 +1,95 @@
+<!-- Travel Matrix Form -->
+<form name="[% tm_form.name %]" id="[% tm_form.name %]"
+  action="[% tm_form.action %]" method="[% tm_form.http_method %]"
+  class="form-vertical" >
+
+
+<fieldset >
+   <legend>
+       <p class="lead">[%- travel_time_heading || 'Calcluate the NYC Mover Travel Time' -%] </p>
+   </legend>
+
+<!--  Start messages -->
+    <div id="messages">
+    <p class="text-success">[%- success_message -%]</p>
+    <p class="text-info">[%- info_message || 'Enter itenerary' -%]</p>
+    <p class="text-warning">[%- warning_message -%]</p>
+    <p class="text-error">[%- error_message -%]</p>
+    </div>
+<!-- End  messages -->
+
+    [% started_new_row  = 0  %]  [%# To specify how many Addresses per line %]
+    <!--- four to a line -->
+    [% FOREACH address_element IN tm_form.field('addresses').fields -%]
+        [%  IF ((loop.count == 1) || ((loop.count % 5) == 0))   %]
+          [% IF ( started_new_row == 1) %]
+               </div> <!-- /row-fluid -->
+          [%  END %]
+          <div class="row-fluid">
+          [% started_new_row  = 1 %]
+        [% END %]
+
+        <div class="span3 well">
+        
+          [% IF loop.first %]
+              <span class="text-info">First Address</span>
+          [% ELSIF loop.last  %] 
+              <span class="text-info">Last Address</span>
+          [% ELSE %]
+              <span class='text-info'>Address [% loop.count %]</span>
+          [% END %]
+          
+          [% address_element.render %]
+
+        </div> <!-- /span3 -->
+    [% END %]
+
+    [% IF ( started_new_row == 1) %] [%# Close div tag at end of each row %]
+        </div> <!-- /row-fluid -->
+        [% started_new_row  = 0 %]
+    [%  END %]
+
+
+
+<div class="row-fluid">
+    [% tm_form.field('submit').render %]
+</div> <!-- /row-fluid -->
+</fieldset>
+</form>
+
+</div> <!-- /row-fluid -->
+
+
+
+[% IF ( tm_form.is_valid) %]
+
+    [% IF (my_errors) %]
+        <div class="alert alert-error">
+        <span><b>[% error_message  || 'What a mess!' %]</b></span>
+        [%# One way to loop through a hash %]
+        [% FOREACH error IN my_errors.values %]
+         <span> [% error %]</span>
+         [% END %]
+        </div>
+    [% ELSE %]
+        <div class="alert alert-success">
+        <span><b>[% success_message  || 'Travel Time' %]</b></span>
+
+            [% FOREACH travel_time IN mover_travel_times -%]
+                <span>Travel time [% loop.count %] is 
+                  [% travel_time.hours %] hours and [% travel_time.minutes %] minutes.</span>
+            [% END %]
+        <span>[% total_travel_time %] </span>
+        </div>
+    [%  END %]
+    
+[% ELSIF ( tm_form.errors) %]
+    <div class="alert alert-error">
+    <span><b>[% error_message  || 'Edit the address details on the form!' %]</b></span>
+        [% FOREACH error IN tm_form.errors -%]
+        <span>[% error %]</span>
+        [% END %]
+    </div>
+[%  END %]
+
+

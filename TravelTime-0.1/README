@@ -1,0 +1,123 @@
+NAME
+    TravelTime - Calculate fixed travel times for Commercial Moving Truck
+
+VERSION
+    version 0.1
+
+SYNOPSIS
+  _get_google_itinerary_data
+   Call the google matrix with the user supplied addresses.
+   Return an array containing Google data for each address combination.
+  _create_itinerary
+  Create an array of each address in the order of the itinerary.
+  The address will be in HashRef format.
+  For simplicity only the first address will be treated as an "origin"
+  address. All other addresses will be treated as destination addresses.
+  _get_google_travel_matrix
+ Create  a Google::Travel::Matrix object.
+ This is our interface with the Google Travel Matrix API.
+ Returns a Google::Travel::Matrix object.
+  _get_google_matrix_data
+  Get distances from the Google matrix.
+  Pass the Google::Travel::Matrix object and an array containing
+  the Origination address as well as the destination address.
+  For simplicity only the first address will be treated as an "origin"
+  address. All other addresses will be treated as destination addresses.
+    Returns an array of HashRefs.... [ { origin_address => $origin_address,
+    destination_address => $destination_address, element_status =>
+    $element_status, element_duration_text => $element_duration_text,
+    element_duration_value => $element_duration_value, element_distance_text
+    => $element_distance_text, #------ This distance is ALWAYS in Meters.
+    element_distance_value => $element_distance_value, distance_in_miles =>
+    sub { calculate distance in miles }, }, {}, ]
+
+  _get_all_itinerary_data
+  Get the iteinerary data from Google::Travel::Matrix
+  Get Mover Travel Time For each "From" "To" address combination.
+  Add it to each HashRef of Google::Travel::Matrix results.
+  Return an array with HashRefs of all itinerary data for each "To"/"From"
+  address element.
+      @all_itinerary_data =
+      [
+        (
+        %google_matrix_result,
+        mover_travel_time_minutes => sub{ #calculate mover travel time},
+        mover_travel_time => {
+                hours         => int( $minutes / 60 ),
+                minutes       => $minutes % 60,
+                hours_minutes => $minutes / 60,
+            },
+        ), 
+        (
+        %google_matrix_result,
+        mover_travel_time_minutes => sub{},
+        mover_travel_time => {},
+        ), 
+        ..... 
+      ]
+
+  _convert_miles_to_travel_time
+ Uses this method:
+    The first 20 miles is 60 minutes.
+    Each 10 miles after that is 15 mins
+    Note:  
+        15 minutes is the smallest time unit.
+        The given milage is converted to an integer, therefore removing any fractions.
+        This integer milage is rounded up to next highest 10 miles.
+NAME
+ TravelTime -  Calculate Truck Travel Times
+VERSION
+Version 0.01
+DESCRIPTION
+ This application allows a user to calculate the standard travel time between
+ two points based on the New York City Department of Transportation guidelines
+ for Household Goods Carriers.
+SEE ALSO
+    *   Dancer
+
+    *   Template::Toolkit =item *
+
+         L<Email::Sender>
+
+AUTHOR
+    Austin Kenny, "<aibistin.cionnaith at gmail.com>"
+
+ACKNOWLEDGEMENTS
+       All CPAN Contributers
+LICENSE AND COPYRIGHT
+    Copyright 2013 Austin Kenny.
+
+    This program is free software; you can redistribute it and/or modify it
+    under the terms of either: the GNU General Public License as published
+    by the Free Software Foundation; or the Artistic License.
+
+    See http://dev.perl.org/licenses/ for more information.
+
+  The Results Array
+    {
+        origin_address         => $origin_address,
+        destination_address    => $destination_address,
+        element_status         => $element_status,
+        element_duration_text  => $element_duration_text,
+        element_duration_value => $element_duration_value,
+        element_distance_text  => $element_distance_text,   # imperial or metric
+        element_distance_value => $element_distance_value,  # Given in meters
+        distance_in_miles =>
+          sub { c_convert_from_meters_to_miles($element_distance_value) },
+        mover_travel_time_minutes =>
+          sub { _convert_miles_to_travel_time($distance_in_miles) },
+        mover_travel_time => {
+            hours         => int( $minutes / 60 ),
+            minutes       => $minutes % 60,
+            hours_minutes => $minutes / 60,
+        },
+    }
+AUTHOR
+    Austin Kenny <aibistin.cionnaith@gmail.com>
+
+COPYRIGHT AND LICENSE
+    This software is copyright (c) 2013 by Austin Kenny.
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
+

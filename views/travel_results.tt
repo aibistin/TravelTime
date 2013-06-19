@@ -10,7 +10,7 @@
                <th>#</th>
                <th>From </th>
                <th>To </th>
-               <th>Milage</th>
+               <th>Mileage</th>
                <th>Google Status</th>
                <th><abbr title="First 20 miles from NYC is one hour.Every 10 miles after that is 15 minutes.">Truck Travel Time</abbr></th>
             </tr>
@@ -76,5 +76,5 @@
 
 <div class="row-fluid">
 <a class="btn btn-primary" href="[% travel_time_start  %]">Try Another</a>
-<a class="btn btn-inverse" href="[% travel_time_edit  %]">Edit Addresses</a>
+<!-- <a class="btn btn-inverse" href="[% travel_time_edit  %]">Edit Addresses</a> -->
 </div> <!-- /row-fluid -->

@@ -6,15 +6,20 @@
 
 <fieldset >
    <legend>
-       <p class="lead">[%- travel_time_heading || 'Calcluate the NYC Mover Travel Time' -%] </p>
+      <p class="lead">
+         [%- 
+             travel_time_heading 
+             || 'Calcluate Moving Truck Travel Time'
+         -%]
+      </p>
    </legend>
 
 <!--  Start messages -->
     <div id="messages">
     <p class="text-success">[%- success_message -%]</p>
-    <p class="text-info">[%- info_message || 'Enter itenerary' -%]</p>
-    <p class="text-warning">[%- warning_message -%]</p>
     <p class="text-error">[%- error_message -%]</p>
+    <p class="text-warning">[%- warning_message -%]</p>
+    <p class="text-info">[%- info_message || 'Enter itenerary' -%]</p>
     </div>
 <!-- End  messages -->
 
@@ -22,6 +27,7 @@
     <!--- four to a line -->
     [% FOREACH address_element IN tm_form.field('addresses').fields -%]
         [%  IF ((loop.count == 1) || ((loop.count % 5) == 0))   %]
+
           [% IF ( started_new_row == 1) %]
                </div> <!-- /row-fluid -->
           [%  END %]
@@ -32,9 +38,17 @@
         <div class="span3 well">
         
           [% IF loop.first %]
-              <span class="text-info">First Address</span>
+              <span class="text-info">
+                <abbr title='Calculations are based from a starting point in central New York City.'>
+                First Address
+                </abbr>
+              </span>
           [% ELSIF loop.last  %] 
-              <span class="text-info">Last Address</span>
+              <span class="text-info">
+                  <abbr title='The next version will have an option for more destination points.'>
+                  Last Address</abbr>
+              </span>
+
           [% ELSE %]
               <span class='text-info'>Address [% loop.count %]</span>
           [% END %]
@@ -84,10 +98,9 @@
     [%  END %]
     
 [% ELSIF ( tm_form.errors) %]
-    <div class="alert alert-error">
-    <span><b>[% error_message  || 'Edit the address details on the form!' %]</b></span>
+    <div class="alert alert-error row-fluid">
         [% FOREACH error IN tm_form.errors -%]
-        <span>[% error %]</span>
+        <span class="span2">[% error %]</span>
         [% END %]
     </div>
 [%  END %]

@@ -13,14 +13,22 @@ use Carp qw/croak/;
 use Try::Tiny;
 
 #------ My Interface with Google Travel Matrix
-use Google::Travel::Matrix;
+use Google::Travel::Matrix 0.02;
+
+#------ Get the Logs from Google::Travel::Matrix
+use Log::Any::Adapter qw/Stdout/;
+use Log::Log4perl qw(:easy);
+Log::Log4perl->easy_init($DEBUG);
 
 #------ Globals
 my $TRUE  = 1;
 my $FALSE = 0;
 
 my $tm_form;
-my $template              = q//;
+my $template = q//;
+
+my $form_page             = q(/);
+my $results_page          = q(/travel_time);
 my $error_page_template   = q/error.tt/;
 my $travel_time_template  = q/travel_time.tt/;
 my $results_page_template = q/travel_results.tt/;
@@ -36,6 +44,21 @@ my $MAX_QUERY_LIMIT         = q/MAX_QUERY_LIMIT/;
 my $REQ_DENIED              = q/REQUEST_DENIED/;
 my $UNKNOWN_ERROR           = q/UNKNOWN_ERROR/;
 
+my %google_status_messages = (
+    $VALID_REQ   => q/Google is happy!/,
+    $INVALID_REQ => q/Google said that this request is invalid. Go figure!/,
+    $MAX_ELEMENTS_EXCEEDED =>
+      q/Google said that you have too many addresses in your query!/,
+    $MAX_DIMENSIONS_EXCEEDED =>
+q/Google thinks that the request URL is much too long for it to handle! Try shorter addresses./,
+    $MAX_QUERY_LIMIT =>
+q/Google said that you have asked enough for one day. Please come back again tomorrow!/,
+    $REQ_DENIED =>
+      q/Google denied your request. It may not like you for some reason./,
+    $UNKNOWN_ERROR => q/Google is not happy, but it wont tell us why!/,
+
+);
+
 #------ Google Matrix Element status codes
 my $OK           = q/OK/;
 my $NOT_FOUND    = q/NOT_FOUND/;
@@ -44,7 +67,7 @@ my $ZERO_RESULTS = q/ZERO_RESULTS/;
 #-------------------------------------------------------------------------------
 #  GET
 #-------------------------------------------------------------------------------
-get '/travel_time' => sub {
+get $form_page => sub {
     debug 'Got to render page.';
 
     my $error_page;
@@ -53,7 +76,7 @@ get '/travel_time' => sub {
     }
     catch {
         error 'Got error with form : ' . $_;
-        $error_page = _process_error(
+        $error_page = process_error(
             {
                 Error      => 'The Travel Matrix Form is really messed up!',
                 Form_error => substr( $_, 0, 400 ),
@@ -71,8 +94,8 @@ get '/travel_time' => sub {
         ],
     };
 
+    #------ Create the initial address(s) and add the final address field
     $tm_form->process( init_object => $init_object );
-
     $tm_form->field('addresses')->add_extra(1);
 
     template $travel_time_template,
@@ -88,8 +111,8 @@ get '/travel_time' => sub {
 #-------------------------------------------------------------------------------
 #  POST
 #-------------------------------------------------------------------------------
-post '/travel_time' => sub {
-    return redirect '/travel_time' unless $tm_form;
+post $results_page => sub {
+    return redirect $form_page unless $tm_form;
 
     $tm_form->process( params => {params} );
 
@@ -108,49 +131,58 @@ post '/travel_time' => sub {
         title               => config->{Display}{tm_title},
         travel_time_heading => config->{Display}{tm_heading_2},
         tm_form             => $tm_form,
+        travel_time_start   => $form_page,
     );
 
-    my @mover_travel_results;
-    if ( $tm_form->validated && $tm_form->is_valid ) {
-        @mover_travel_results = @{ _get_all_itinerary_data() };
-    }    # End is form valid
+    debug 'Returned form rc is: '
+      . ( $tm_form->is_valid // 'Nothing returned!' );
+    my $mover_travel_results;
 
-    #------ Check for non form related errors.
-    if ( keys %my_errors ) {
-        %template_vars = (
-            %template_vars,
-            info_message  => 'Please check that the addresses(s) are valid.',
-            error_message => config->{Display}{error_message},
-            my_errors     => \%my_errors,
-        );
-        $template = $travel_time_template;
+    if ( $tm_form->validated && $tm_form->is_valid ) {
+        debug 'Form is fully valid!';
+        $mover_travel_results = get_all_itinerary_data();
+
+        #------ Check for processing errors.
+        if ( keys %my_errors ) {
+            %template_vars = (
+                %template_vars,
+                info_message => 'Please check that the addresses(s) are valid.',
+                error_message     => config->{Display}{error_message},
+                my_errors         => \%my_errors,
+                travel_time_start => $form_page,
+            );
+            $template = $travel_time_template;
+        }
+        else {
+
+            #------ Success
+            debug 'Final travel results are : ' . dump $mover_travel_results;
+            %template_vars = (
+                %template_vars,
+                result_heading => config->{Display}{result_heading},
+                success_message =>
+                  ( config->{Display}{success_message} || 'Thanks Google!' ),
+                results_table_heading =>
+                  config->{Display}{results_table_heading},
+                mover_travel_results => $mover_travel_results,
+                travel_time_start    => $form_page,
+            );
+            $template = $results_page_template;
+        }
+        template $template, \%template_vars;
     }
     else {
+        debug 'Form has errors : ' . dump $tm_form->errors;
+        $template = $travel_time_template;
 
-        #        origin_address         => $origin_address,
-        #        destination_address    => $destination_address,
-        #        element_status         => $element_status,
-        #        element_duration_text  => $element_duration_text,
-        #        element_duration_value => $element_duration_value,
-        #        element_distance_text  => $element_distance_text,
-        #        #------ This distance is ALWAYS in Meters.
-        #        element_distance_value => $element_distance_value,
-        #        distance_in_miles      => sub { calculate distance in miles },
-        #        mover_travel_time      => sub { calculate mover travel time },
-
-        #------ Success
-        debug 'Final travel results are : ' . dump @mover_travel_results;
+        debug 'The form error message is: ' . $tm_form->error_message;
         %template_vars = (
-            %template_vars,
-            result_heading  => config->{Display}{result_heading},
-            success_message => config->{Display}{success_message}
-              || 'Thanks Google!',
-            results_table_heading => config->{Display}{results_table_heading},
-            mover_travel_results  => \@mover_travel_results,
+            %template_vars, 
+            info_message  => 'Please check that the addresses(s) are valid.',
+            error_message => config->{Display}{error_message},
         );
-        $template = $results_page_template;
+        template $template, \%template_vars;
     }
-    template $template, \%template_vars;
 
 };
 
@@ -158,7 +190,7 @@ post '/travel_time' => sub {
 #   Wrong route
 #-------------------------------------------------------------------------------
 any qr{.*} => sub {
-    _process_error(
+    process_error(
         {
             Error              => 'You took a wrong turn. Please get a map!',
             the_incorrect_path => request->path,
@@ -170,39 +202,43 @@ any qr{.*} => sub {
 #  Render Error Page
 #  Pass a message and a URL to return to.
 #-------------------------------------------------------------------------------
-sub _process_error {
+sub process_error {
     my $error_messages = shift;
     error "Got these errors : \n" . dump $error_messages;
-    return template $error_page_template, { error_messages => $error_messages };
+    return template $error_page_template,
+      {
+        error_messages    => $error_messages,
+        travel_time_start => $form_page,
+      };
 }
 
 #-------------------------------------------------------------------------------
 #  Call the Google
 #-------------------------------------------------------------------------------
 
-=head2 _get_google_itinerary_data
+=head2 get_google_itinerary_data
    Call the google matrix with the user supplied addresses.
    Return an array containing Google data for each address combination.
 =cut
 
-sub _get_google_itinerary_data {
-    my $itinerary_arr = _create_itinerary(params);
-    my $Gm            = _get_google_travel_matrix();
-    return _get_google_matrix_data( $Gm, $itinerary_arr ) if $Gm;
+sub get_google_itinerary_data {
+    my $itinerary_arr = create_itinerary(params);
+    my $Gm            = get_google_travel_matrix();
+    return get_google_matrix_data( $Gm, $itinerary_arr ) if $Gm;
 }
 
 #-------------------------------------------------------------------------------
 #  Create an itinerary of addresses.
 #-------------------------------------------------------------------------------
 
-=head2 _create_itinerary
+=head2 create_itinerary
   Create an array of each address in the order of the itinerary.
   The address will be in HashRef format.
   For simplicity only the first address will be treated as an "origin"
   address. All other addresses will be treated as destination addresses.
 =cut
 
-sub _create_itinerary {
+sub create_itinerary {
     my $form = shift;
     my @address_array;
 
@@ -210,25 +246,26 @@ sub _create_itinerary {
     foreach my $address ( $tm_form->field('addresses')->fields ) {
         my %address_hash;
         foreach my $field ( $address->fields ) {
-            debug 'Form With Extras Address SubFields Name : ' . $field->name;
-            debug 'Form With Extras Address SubFields Value: ' . $field->value
-              || '<EMPTY>';
+
+ #            debug 'Form With Extras Address SubFields Name : ' . $field->name;
+ #            debug 'Form With Extras Address SubFields Value: '
+ #              . ( $field->value || '<EMPTY>' );
             $address_hash{ $field->name } = $field->value;
         }
         push @address_array, \%address_hash;
     }
 
-    debug 'The itinerary is : ' . dump(@address_array);
+    debug 'The itinerary passed to Google is : ' . dump(@address_array);
     return \@address_array;
 }
 
-=head2 _get_google_travel_matrix
+=head2 get_google_travel_matrix
  Create  a Google::Travel::Matrix object.
  This is our interface with the Google Travel Matrix API.
  Returns a Google::Travel::Matrix object.
 =cut
 
-sub _get_google_travel_matrix {
+sub get_google_travel_matrix {
     my $GoogMx;
     try {
         $GoogMx = Google::Travel::Matrix->new( config->{Google}{Params}, );
@@ -241,7 +278,7 @@ sub _get_google_travel_matrix {
     return $GoogMx;
 }
 
-=head2 _get_google_matrix_data
+=head2 get_google_matrix_data
   Get distances from the Google matrix.
   Pass the Google::Travel::Matrix object and an array containing
   the Origination address as well as the destination address.
@@ -265,24 +302,37 @@ Returns an array of HashRefs....
 ]
 =cut
 
-sub _get_google_matrix_data {
+sub get_google_matrix_data {
     my $GoogTrMatrix  = shift;
     my $itinerary_arr = shift;
-    my ( @results_arr, @elements );
+    my ( $matrix_data, @results_arr, @elements );
     try {
 
-        #------ Treat the first itinerary address as the origin
-        #       this is the only way that the first 20 miles rule
-        #       works for now.
+#------ Treat the first itinerary address as the origin #       this is the only way that the first 20 miles rule
+#       works for now.
         $GoogTrMatrix->origins( shift @$itinerary_arr );
         $GoogTrMatrix->destinations($itinerary_arr);
-        @elements = @{ $GoogTrMatrix->get_all_elements() };
+        $matrix_data = $GoogTrMatrix->get_google_matrix_data_as_scalar_ref();
     }
     catch {
         error 'Got an error with the address(s): ' . $_;
         $my_errors{goog_matrix_addresses} = "Got an error with the addresses. ";
     };
+    my $google_status = $GoogTrMatrix->get_matrix_status_message($matrix_data);
+    if ( $google_status and $google_status eq $VALID_REQ ) {
+        @elements = @{ $GoogTrMatrix->get_all_elements($matrix_data) };
 
+    }
+    else {
+        error 'Google Distance Matrix returned a bad status message: '
+          . ( $google_status // q// );
+        $my_errors{goog_matrix_status} = $google_status |= q/ABBYNORMAL/;
+        $my_errors{goog_matrix_message} =
+          $google_status_messages{$google_status} // 'Google was so angry, it
+          didnt even return a proper status code!!!';
+        return;
+
+    }
     foreach my $itinerary (@elements) {
 
         #------ Google gives the distance value in meters. It gives a text
@@ -299,7 +349,7 @@ sub _get_google_matrix_data {
 
             #------ This distance is ALWAYS in Meters.
             element_distance_value => $itinerary->{element_distance_value},
-            distance_in_miles      => _convert_from_meters_to_miles(
+            distance_in_miles      => convert_from_meters_to_miles(
                 $itinerary->{element_distance_value}
             ),
         };
@@ -308,7 +358,7 @@ sub _get_google_matrix_data {
     return \@results_arr;
 }
 
-=head2 _get_all_itinerary_data
+=head2 get_all_itinerary_data
   Get the iteinerary data from Google::Travel::Matrix
   Get Mover Travel Time For each "From" "To" address combination.
   Add it to each HashRef of Google::Travel::Matrix results.
@@ -336,7 +386,7 @@ sub _get_google_matrix_data {
 
 =cut
 
-sub _get_all_itinerary_data {
+sub get_all_itinerary_data {
     my @goog_matrix_results_with_tt;
     my $total_mover_travel_time_minutes;
 
@@ -345,21 +395,33 @@ sub _get_all_itinerary_data {
     #        This key/value pair will be
     #        'mover_travel_time' => $mover_travel_time
     #
-    for my $goog_mx_el_result ( @{ _get_google_itinerary_data() } ) {
+    my $google_itinerary_data = get_google_itinerary_data();
+    return
+      unless ( $google_itinerary_data
+        and ref($google_itinerary_data) eq 'ARRAY' );
+    for my $goog_mx_el_result (@$google_itinerary_data) {
         if ( $goog_mx_el_result->{element_status} eq $OK ) {
 
             #------ Get a grand total travel time in minutes.
             $total_mover_travel_time_minutes += my $mover_travel_time_minutes =
-              _convert_miles_to_travel_time(
+              convert_miles_to_travel_time(
                 $goog_mx_el_result->{distance_in_miles} );
             %$goog_mx_el_result = (
                 %$goog_mx_el_result,
                 mover_travel_time_minutes => $mover_travel_time_minutes,
                 mover_travel_time =>
-                  _convert_minutes_to_hours_minutes($mover_travel_time_minutes),
+                  convert_minutes_to_hours_minutes($mover_travel_time_minutes),
             );
 
         }
+        else {
+            %$goog_mx_el_result = (
+                %$goog_mx_el_result,
+                mover_travel_time_minutes => 0,
+                mover_travel_time         => 0,
+            );
+        }
+
         push @goog_matrix_results_with_tt, $goog_mx_el_result;
     }
     return \@goog_matrix_results_with_tt;
@@ -370,7 +432,7 @@ sub _get_all_itinerary_data {
 #  Returns the time in minutes;
 #-------------------------------------------------------------------------------
 
-=head2 _convert_miles_to_travel_time
+=head2 convert_miles_to_travel_time
  Uses this method:
     The first 20 miles is 60 minutes.
     Each 10 miles after that is 15 mins
@@ -381,7 +443,7 @@ sub _get_all_itinerary_data {
 
 =cut
 
-sub _convert_miles_to_travel_time {
+sub convert_miles_to_travel_time {
 
     #------ Not concerned with faction of mile.
     my $distance = abs(shift);
@@ -401,7 +463,7 @@ sub _convert_miles_to_travel_time {
 #  Convert minutes to hours and minutes
 #  Returns a HashRef with hours, minutes and hours with hour fractions;
 #-------------------------------------------------------------------------------
-sub _convert_minutes_to_hours_minutes {
+sub convert_minutes_to_hours_minutes {
     my $minutes = shift;
     return {
         hours         => int( $minutes / 60 ),
@@ -413,12 +475,12 @@ sub _convert_minutes_to_hours_minutes {
 #-------------------------------------------------------------------------------
 #  Convert meters to miles.
 #-------------------------------------------------------------------------------
-sub _convert_from_meters_to_miles {
+sub convert_from_meters_to_miles {
     my $miles = $_[0] * 0.000621371;
     return sprintf( "%.1f", $miles );
 }
 
-sub _convert_from_miles_to_meters {
+sub convert_from_miles_to_meters {
     return $_[0] * 1609.34;
 }
 
@@ -496,7 +558,7 @@ See http://dev.perl.org/licenses/ for more information.
         distance_in_miles =>
           sub { c_convert_from_meters_to_miles($element_distance_value) },
         mover_travel_time_minutes =>
-          sub { _convert_miles_to_travel_time($distance_in_miles) },
+          sub { convert_miles_to_travel_time($distance_in_miles) },
         mover_travel_time => {
             hours         => int( $minutes / 60 ),
             minutes       => $minutes % 60,

@@ -17,7 +17,7 @@
         </thead>
         <tbody>
           [% set total_travel_time_mins = 0 %]
-          [% FOREACH mt_result_h IN mover_travel_results -%]
+          [% FOREACH mt_result_h IN mover_distance_results -%]
           <tr>
            <td>[% loop.count %]</td>
             <td>[%- mt_result_h.origin_address -%] </td>
@@ -33,9 +33,9 @@
               </td>
             [% ELSE %]
               <td>
-                [%- mt_result_h.mover_travel_time.hours -%]
+                [%- mt_result_h.mover_travel_time.hours || 0 -%]
                 [%-   mt_result_h.mover_travel_time.hours  > 1 ? " hours" :
-                mt_result_h.mover_travel_time.hours  == 1 ? " hour" : mt_result_h.element_status -%] 
+                mt_result_h.mover_travel_time.hours  == 1 ? " hour" : ""  -%] 
               </td>
             [% END %]
             [%  total_travel_time_mins = total_travel_time_mins +

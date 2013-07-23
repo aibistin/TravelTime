@@ -1,90 +1,69 @@
 # ABSTRACT: Calculate fixed travel times for Commercial Moving Truck
 package TravelTime;
-use Modern::Perl qw/2012/;
+use Modern::Perl;
+use autodie;
 use Dancer2;
-
-our $VERSION = '0.1';
+use Dancer2::Plugin::Ajax;
+our $VERSION = '0.2';
 
 #----My HTML::Formhandler Module
 use Mover::Form::Travel::Matrix;
+
+#------ My Interface with Google Travel Matrix
+use Google::Travel::Matrix;
 use Template;
 use Data::Dump qw/dump/;
 use Carp qw/croak/;
 use Try::Tiny;
+use Regexp::Common qw /zip/;
 
-#------ My Interface with Google Travel Matrix
-use Google::Travel::Matrix 0.02;
-
-#------ Get the Logs from Google::Travel::Matrix
-use Log::Any::Adapter qw/Stdout/;
-use Log::Log4perl qw(:easy);
-Log::Log4perl->easy_init($DEBUG);
+#------ My DBI stuff
+#  Prepare_select_city_state_cty_ord
+use MyDatabase qw/
+  db_handle
+  prepare_select_nyc_places_ord
+  select_city_state_cty
+  select_nyc_zip
+  execute_select
+  fetchall_arrayref
+  get_state_code_from_name
+  get_state_name_from_code
+  /;
 
 #------ Globals
 my $TRUE  = 1;
 my $FALSE = 0;
+my $DBH;
 
-my $tm_form;
-my $template = q//;
+my $ERROR_PAGE_TEMPLATE        = q/error.tt/;
+my $TRAVEL_TIME_TEMPLATE       = q/travel_time.tt/;
+my $RESULTS_PAGE_TEMPLATE      = q/travel_results.tt/;
+my $TRAVEL_TIME_QUICK_TEMPLATE = q/travel_time_quick.tt/;
+my $TRAVEL_TIME_START          = q{/travel_time};
+my $TRAVEL_TIME_QUICK          = q{/quick};
+my $MIN_ADDR_FIELD_LEN         = 3;
+my $MIN_ADDR_STATE_FIELD_LEN   = 2;
+my $MAX_ADDR_FIELD_LEN         = 80;
 
-my $form_page             = q(/);
-my $results_page          = q(/travel_time);
-my $error_page_template   = q/error.tt/;
-my $travel_time_template  = q/travel_time.tt/;
-my $results_page_template = q/travel_results.tt/;
-
-my %my_errors;
-
-#------ Google Matrix Response status codes
-my $VALID_REQ               = q/OK/;
-my $INVALID_REQ             = q/INVALID_REQUEST/;
-my $MAX_ELEMENTS_EXCEEDED   = q/MAX_ELEMENTS_EXCEEDED/;
-my $MAX_DIMENSIONS_EXCEEDED = q/MAX_DIMENSIONS_EXCEEDED/;
-my $MAX_QUERY_LIMIT         = q/MAX_QUERY_LIMIT/;
-my $REQ_DENIED              = q/REQUEST_DENIED/;
-my $UNKNOWN_ERROR           = q/UNKNOWN_ERROR/;
-
-my %google_status_messages = (
-    $VALID_REQ   => q/Google is happy!/,
-    $INVALID_REQ => q/Google said that this request is invalid. Go figure!/,
-    $MAX_ELEMENTS_EXCEEDED =>
-      q/Google said that you have too many addresses in your query!/,
-    $MAX_DIMENSIONS_EXCEEDED =>
-q/Google thinks that the request URL is much too long for it to handle! Try shorter addresses./,
-    $MAX_QUERY_LIMIT =>
-q/Google said that you have asked enough for one day. Please come back again tomorrow!/,
-    $REQ_DENIED =>
-      q/Google denied your request. It may not like you for some reason./,
-    $UNKNOWN_ERROR => q/Google is not happy, but it wont tell us why!/,
-
-);
+my %MY_ERRORS;
 
 #------ Google Matrix Element status codes
 my $OK           = q/OK/;
 my $NOT_FOUND    = q/NOT_FOUND/;
 my $ZERO_RESULTS = q/ZERO_RESULTS/;
 
+#---- Connect to Database
+hook before => sub {
+    connect_to_cities() unless $DBH;
+};
+
 #-------------------------------------------------------------------------------
 #  GET
 #-------------------------------------------------------------------------------
-get $form_page => sub {
-    debug 'Got to render page.';
-
-    my $error_page;
-    try {
-        $tm_form = Mover::Form::Travel::Matrix->new( fif_from_value => 1 );
-    }
-    catch {
-        error 'Got error with form : ' . $_;
-        $error_page = process_error(
-            {
-                Error      => 'The Travel Matrix Form is really messed up!',
-                Form_error => substr( $_, 0, 400 ),
-            }
-        );
-    };
-
-    return $error_page unless $tm_form;
+get $TRAVEL_TIME_START => sub {
+    debug 'Got to render regular tt page.';
+    %MY_ERRORS = ();
+    my $tm_form = create_address_form( { fif_from_value => 1 } );
 
     my $init_object = {
         addresses => [
@@ -94,16 +73,17 @@ get $form_page => sub {
         ],
     };
 
-    #------ Create the initial address(s) and add the final address field
     $tm_form->process( init_object => $init_object );
-    $tm_form->field('addresses')->add_extra(1);
 
-    template $travel_time_template,
+    #    $tm_form->field('addresses')->add_extra(1);
+
+    template $TRAVEL_TIME_TEMPLATE,
       {
         title               => config->{Display}{tm_title},
         travel_time_heading => config->{Display}{tm_heading_1},
         tm_form             => $tm_form,
         info_message        => config->{Display}{intro_message},
+        travel_time_start   => $TRAVEL_TIME_START
       };
 
 };
@@ -111,159 +91,383 @@ get $form_page => sub {
 #-------------------------------------------------------------------------------
 #  POST
 #-------------------------------------------------------------------------------
-post $results_page => sub {
-    return redirect $form_page unless $tm_form;
+post $TRAVEL_TIME_START => sub {
+    %MY_ERRORS = ();
+    my $tm_form = create_address_form();
 
+    process_error( { Error => 'Should never get here!!!!!!', } )
+      unless $tm_form;
+    debug 'Travel time address form was re-created.';
+
+    # Each parm is a key value
     $tm_form->process( params => {params} );
 
-    #    debug 'Is form validated ? ' . $tm_form->validated;
-    #    debug 'Is form valid ? ' . $tm_form->is_valid;
-    #    debug 'Form errors ? ' . $tm_form->errors;
-    #    debug 'Fields with errors ? ' . $tm_form->error_fields;
-    #    debug 'Form params ? ' . dump $tm_form->params;
-    #    debug 'Form vaules ? ' . dump $tm_form->value;
-    #
-    #    debug 'Form Fields : ' . join "\nField: ", $tm_form->sorted_fields;
-    #    debug 'Form Address SubFields : ' . join "\nSub Field: ",
-    #      $tm_form->field('addresses')->sorted_fields;
+    debug 'Travel time address form was processed.';
 
     my %template_vars = (
         title               => config->{Display}{tm_title},
         travel_time_heading => config->{Display}{tm_heading_2},
         tm_form             => $tm_form,
-        travel_time_start   => $form_page,
+        travel_time_start   => $TRAVEL_TIME_START
     );
 
-    debug 'Returned form rc is: '
-      . ( $tm_form->is_valid // 'Nothing returned!' );
-    my $mover_travel_results;
-
+    my $mover_distance_results;
     if ( $tm_form->validated && $tm_form->is_valid ) {
-        debug 'Form is fully valid!';
-        $mover_travel_results = get_all_itinerary_data();
+        debug "Form is valid!";
+        my $itinerary_array = create_itineray_array_from_fh($tm_form);
+        debug 'Itinerary array is ' . dump $itinerary_array;
+        $mover_distance_results = get_all_itinerary_data($itinerary_array);
 
-        #------ Check for processing errors.
-        if ( keys %my_errors ) {
-            %template_vars = (
-                %template_vars,
-                info_message => 'Please check that the addresses(s) are valid.',
-                error_message     => config->{Display}{error_message},
-                my_errors         => \%my_errors,
-                travel_time_start => $form_page,
-            );
-            $template = $travel_time_template;
-        }
-        else {
-
-            #------ Success
-            debug 'Final travel results are : ' . dump $mover_travel_results;
-            %template_vars = (
-                %template_vars,
-                result_heading => config->{Display}{result_heading},
-                success_message =>
-                  ( config->{Display}{success_message} || 'Thanks Google!' ),
-                results_table_heading =>
-                  config->{Display}{results_table_heading},
-                mover_travel_results => $mover_travel_results,
-                travel_time_start    => $form_page,
-            );
-            $template = $results_page_template;
-        }
-        template $template, \%template_vars;
+        #------ Check for any errors returned from travel time
+        #      processing
+        my ( $template, $t_vars ) = create_final_template(
+            {
+                mover_distance_results => $mover_distance_results,
+                template_vars          => \%template_vars,
+            }
+        );
+        debug 'The template to be rendered is ' . $template;
+        template $template, $t_vars;
     }
     else {
-        debug 'Form has errors : ' . dump $tm_form->errors;
-        $template = $travel_time_template;
 
-        debug 'The form error message is: ' . $tm_form->error_message;
-        %template_vars = (
-            %template_vars, 
-            info_message  => 'Please check that the addresses(s) are valid.',
-            error_message => config->{Display}{error_message},
-        );
-        template $template, \%template_vars;
+        debug "Form is Invalid!";
+
+        #------ form error
+        $template_vars{warning_message} =
+          'Please check that the addresses(s) are valid.';
+        template $TRAVEL_TIME_TEMPLATE, \%template_vars;
     }
 
+};
+
+#-------------------------------------------------------------------------------
+#  Quick Method
+#-------------------------------------------------------------------------------
+get $TRAVEL_TIME_QUICK => sub {
+    debug 'Got to quick travel time GET page.';
+    %MY_ERRORS = ();
+
+    #----- Must be at least two address fields in itinerary form.
+    template $TRAVEL_TIME_QUICK_TEMPLATE,
+      {
+        title                => config->{Display}{tm_title},
+        travel_time_heading  => config->{Display}{tm_heading_1},
+        info_message         => config->{Display}{intro_message},
+        what_to_do           => config->{Display}{Quick}{what_to_do},
+        form_name            => config->{Form}{Quick}{form_name},
+        form_action          => $TRAVEL_TIME_QUICK,
+        form_method          => config->{Form}{Quick}{form_method},
+        travel_time_start    => $TRAVEL_TIME_QUICK,
+        quick_form_addresses => [ '', '' ],
+      };
+
+};
+
+post $TRAVEL_TIME_QUICK => sub {
+    debug 'Got to quick travel time POST page.';
+    %MY_ERRORS = ();
+    debug 'Quick form params are : ' . dump params;
+
+    return redirect $TRAVEL_TIME_QUICK unless ( keys params );
+
+    my $itinerary_array = create_itinerary_array( {params} );
+    debug 'Itinerary : ' . dump( $itinerary_array // 'EMPTY' );
+
+    my $mover_distance_results = get_all_itinerary_data($itinerary_array)
+      if $itinerary_array;
+
+    my ( $template, $template_vars ) = create_final_template(
+        {
+            mover_distance_results => $mover_distance_results,
+            itinerary_array        => $itinerary_array,
+            template_vars          => {
+                title               => config->{Display}{tm_title},
+                travel_time_heading => config->{Display}{tm_heading_1},
+                info_message        => config->{Display}{intro_message},
+                form_name           => config->{Form}{Quick}{quick_form},
+                form_action         => $TRAVEL_TIME_QUICK,
+                form_method         => config->{Form}{Quick}{form_method},
+                travel_time_start   => $TRAVEL_TIME_QUICK,
+            }
+        }
+    );
+
+    template $template, $template_vars;
+};
+
+#-------------------------------------------------------------------------------
+#    AJAX
+#-------------------------------------------------------------------------------
+ajax '/city_states' => sub {
+    debug 'Using AJAX,  because it makes everything wonderful.';
+
+    #------ Trim  whitespace from lhs and append the '%' SQL match char.
+    #       This will handle searches like 'Sunn,      New York'
+    #       or                             'Kew Gar,      New York'
+    #       or                             'Kew,New York'
+    my @find_params =
+
+      map { $_ =~ s/^\s+//; s/\s+\z//; $_ . '%' }
+      split( ',', params->{find} );
+    debug 'The find params array now contains : ' . dump @find_params;
+
+    my $csc_arr;
+
+    #------ Allow some short cuts for the Big Apple
+    if ( $find_params[0] =~ /^(nyc|manhattan|new york|base)%\z/i ) {
+        $csc_arr->[0] = [ 'New York City', 'New York', 'New York County' ];
+    }
+    else {
+
+        #----- Search DB for City and Counties matching the
+        connect_to_cities() unless $DBH;
+        return redirect $TRAVEL_TIME_QUICK unless $DBH;
+        $csc_arr = select_city_state_cty( $DBH, \@find_params );
+    }
+    { city_states => $csc_arr };
 };
 
 #-------------------------------------------------------------------------------
 #   Wrong route
 #-------------------------------------------------------------------------------
 any qr{.*} => sub {
-    process_error(
-        {
-            Error              => 'You took a wrong turn. Please get a map!',
-            the_incorrect_path => request->path,
-        }
-    );
+    return redirect $TRAVEL_TIME_QUICK;
 };
 
 #-------------------------------------------------------------------------------
-#  Render Error Page
-#  Pass a message and a URL to return to.
+#  Error Page
+#-------------------------------------------------------------------------------
+get '/error_page/:vars' => sub {
+    my $vars = params->{vars};
+    template $ERROR_PAGE_TEMPLATE, {
+        %$vars,
+
+        #        error_page_heading => config->{Display}{unknown_error_message}
+        error_messages => \%MY_ERRORS,
+        home           => $TRAVEL_TIME_QUICK,
+    };
+};
+
+#
+#                           Subroutines
+#
+#-------------------------------------------------------------------------------
+#  Prepare error messages.
 #-------------------------------------------------------------------------------
 sub process_error {
-    my $error_messages = shift;
-    error "Got these errors : \n" . dump $error_messages;
-    return template $error_page_template,
-      {
-        error_messages    => $error_messages,
-        travel_time_start => $form_page,
-      };
+    if ( keys %MY_ERRORS ) {
+        error "Got these errors : \n" . dump %MY_ERRORS;
+    }
+    else {
+        error 'Got some unknown error!';
+        $MY_ERRORS{message} =
+          ( config->{Display}{unknown_error_message}
+              || 'Something bad happened!' );
+    }
+    redirect '/error_page';
 }
 
 #-------------------------------------------------------------------------------
-#  Call the Google
+#  Create Form
 #-------------------------------------------------------------------------------
+sub create_address_form {
+    my $params = shift;
 
-=head2 get_google_itinerary_data
-   Call the google matrix with the user supplied addresses.
-   Return an array containing Google data for each address combination.
-=cut
+    my $address_form;
 
-sub get_google_itinerary_data {
-    my $itinerary_arr = create_itinerary(params);
-    my $Gm            = get_google_travel_matrix();
-    return get_google_matrix_data( $Gm, $itinerary_arr ) if $Gm;
+    try {
+        $address_form = Mover::Form::Travel::Matrix->new( fif_from_value => 1 );
+    }
+    catch {
+        error 'Got error creating address form : ' . $_;
+        process_error(
+            {
+                Error => 'The Travel Matrix Address Form is really messed up!',
+                form_error => substr( $_, 0, 400 ),
+            }
+        );
+    };
+    return $address_form;
 }
 
 #-------------------------------------------------------------------------------
-#  Create an itinerary of addresses.
+#  create_final_template
+#  Create the final template after processing the requested itinerary.
+#  Check for any errors returned from distance matrix or travel time
+#  processing.
+#  Pass:
+#       {
+#           tm_form => $tm_form,  # if using HTML::FormHandler
+#           mover_distance_results => $mover_distance_results,
+#           template_vars          => \$template_vars,
+#           itinerary_array        => $itinerary_array, #original addresses
+#       });
+#
+#  Returns a ready to render template and \%template_vars.
 #-------------------------------------------------------------------------------
+sub create_final_template {
+    my $template_data          = shift;
+    my $mover_distance_results = $template_data->{mover_distance_results};
+    my $itinerary_array        = $template_data->{itinerary_array}
+      if $template_data->{itinerary_array};
+    my $template_vars = $template_data->{template_vars};
 
-=head2 create_itinerary
-  Create an array of each address in the order of the itinerary.
-  The address will be in HashRef format.
-  For simplicity only the first address will be treated as an "origin"
-  address. All other addresses will be treated as destination addresses.
-=cut
+    my $tm_form = $template_vars->{tm_form}
+      if $template_vars->{tm_form};
+    if ($tm_form) {
+        debug 'We are using the FormBuilder Form';
+    }
+    else {
+        debug 'We are using the quick form.';
+    }
+    my $template;
+    if ( (keys %MY_ERRORS )or (not $mover_distance_results )) {
 
-sub create_itinerary {
-    my $form = shift;
+        #------ Failure
+        %$template_vars = (
+            %$template_vars,
+            info_message  => 'Please check that the addresses(s) are valid.',
+            error_message => config->{Display}{error_message},
+            my_errors     => \%MY_ERRORS,
+            tm_form         => $tm_form,            # FormHandler only
+            itinerary_array => $itinerary_array,    # Quick Form
+            form_is_valid   => $FALSE,
+        );
+        $template =
+          $tm_form ? $TRAVEL_TIME_TEMPLATE : $TRAVEL_TIME_QUICK_TEMPLATE;
+    }
+    else {
+
+        #----- Success!
+        %MY_ERRORS = ();
+        debug 'Final travel results are : ' . dump $mover_distance_results;
+        %$template_vars = (
+            %$template_vars,
+            result_heading  => config->{Display}{result_heading},
+            success_message => config->{Display}{success_message}
+              || 'With the help of the Google Distance Matrix!',
+            results_table_heading  => config->{Display}{results_table_heading},
+            mover_distance_results => $mover_distance_results,
+            form_is_valid          => $TRUE,
+        );
+        $template =
+          $tm_form ? $RESULTS_PAGE_TEMPLATE : $TRAVEL_TIME_QUICK_TEMPLATE;
+    }
+    return ( $template, $template_vars );
+}
+
+#-------------------------------------------------------------------------------
+#  Convert the form addresses to an array of addresses
+#  Pass the FormHandler form with the addresses
+#-------------------------------------------------------------------------------
+sub create_itineray_array_from_fh {
+    my $tm_form = shift;
+    croak 'Must send the form with the address paramaters!'
+      unless ($tm_form);
     my @address_array;
 
     #------ Get The Addresses
     foreach my $address ( $tm_form->field('addresses')->fields ) {
         my %address_hash;
         foreach my $field ( $address->fields ) {
-
- #            debug 'Form With Extras Address SubFields Name : ' . $field->name;
- #            debug 'Form With Extras Address SubFields Value: '
- #              . ( $field->value || '<EMPTY>' );
             $address_hash{ $field->name } = $field->value;
         }
         push @address_array, \%address_hash;
     }
-
-    debug 'The itinerary passed to Google is : ' . dump(@address_array);
     return \@address_array;
 }
 
-=head2 get_google_travel_matrix
- Create  a Google::Travel::Matrix object.
- This is our interface with the Google Travel Matrix API.
- Returns a Google::Travel::Matrix object.
-=cut
+#-------------------------------------------------------------------------------
+#  Takes the hidden address field params h-address-1, h-address-2.......
+#  Grabs the address stored in the format city,state,county
+#  Returns an array of each address stored in order.
+#-------------------------------------------------------------------------------
+sub create_itinerary_array {
+    croak 'Must send the quick form paramaters to convert to itinerary array!'
+      unless ( ref( $_[0] ) eq 'HASH' );
+    my $in_params = validate_quick_form(shift);
+    return if ( keys %MY_ERRORS );
+
+    #------ Sort Addresses in Itinerary order.
+    #       The addresses we want are the ones in the hidden fields prefixed
+    #       with 'h-address-'.
+    my @address_array = map {
+            $in_params->{$_}->[0] . ', '
+          . $in_params->{$_}->[1] . ', '
+          . $in_params->{$_}->[2]
+      }
+      sort {
+        substr( $a, index( $a, '-', 2 ) + 1 ) <=>
+          substr( $b, index( $b, '-', 2 ) + 1 )
+      } grep { /^h-address-/ } keys %$in_params;
+
+    debug 'Quick itinerary array: ' . dump @address_array;
+    if ( @address_array < 2 ) {
+        $MY_ERRORS{input_address} =
+          'Cannot handle the addresses in this format!';
+        return;
+    }
+
+    return \@address_array;
+}
+
+#-------------------------------------------------------------------------------
+#  Combine the Itinerary array with the Google Distance Matrix data
+#  to come up with the Mover Travel Time between each location.
+#-------------------------------------------------------------------------------
+
+sub get_all_itinerary_data {
+    my $itinerary_array = shift;
+    my @goog_matrix_results_with_tt;
+    my $total_mover_travel_time_minutes;
+
+    #------- Get the array of Google Matrix Element Results
+    #        Add a new key/value to the Element results HashRef
+    #        This key/value pair will be
+    #        'mover_travel_time' => $mover_travel_time
+    #
+    my $Gm = get_google_travel_matrix();
+    return unless $Gm;
+    my $goog_matrix_results = get_google_matrix_data( $Gm, $itinerary_array )
+      if $Gm;
+    return unless $goog_matrix_results;
+    for my $goog_mx_el_result (@$goog_matrix_results) {
+        if ( $goog_mx_el_result->{element_status} eq $OK ) {
+            my $mover_travel_time_minutes;
+
+            #------Get the travel time and the running total travel time
+            #      To and from NYC use different metrics for converting
+            #
+            if (   is_address_nyc( $goog_mx_el_result->{origin_address} )
+                || is_address_nyc( $goog_mx_el_result->{destination_address} ) )
+            {
+                $total_mover_travel_time_minutes += $mover_travel_time_minutes =
+                  convert_miles_to_travel_time_nyc(
+                    $goog_mx_el_result->{distance_in_miles} );
+            }
+            else {
+                $total_mover_travel_time_minutes += $mover_travel_time_minutes =
+                  convert_miles_to_travel_time(
+                    $goog_mx_el_result->{distance_in_miles} );
+            }
+
+            %$goog_mx_el_result = (
+                %$goog_mx_el_result,
+                mover_travel_time_minutes => $mover_travel_time_minutes,
+                mover_travel_time =>
+                  convert_minutes_to_hours_minutes($mover_travel_time_minutes),
+            );
+
+        }
+        push @goog_matrix_results_with_tt, $goog_mx_el_result;
+    }
+    return \@goog_matrix_results_with_tt;
+}
+
+#-------------------------------------------------------------------------------
+#  Interactions with Google
+#-------------------------------------------------------------------------------
 
 sub get_google_travel_matrix {
     my $GoogMx;
@@ -271,68 +475,33 @@ sub get_google_travel_matrix {
         $GoogMx = Google::Travel::Matrix->new( config->{Google}{Params}, );
     }
     catch {
-        $my_errors{goog_matrix} = "Failed to connect to Google!</br> Please try
+        $MY_ERRORS{goog_matrix} = "Failed to connect to Google!</br> Please try
         again.";
         error 'Unable to create Google::Travel::Marix: ' . $_;
     };
     return $GoogMx;
 }
 
-=head2 get_google_matrix_data
-  Get distances from the Google matrix.
-  Pass the Google::Travel::Matrix object and an array containing
-  the Origination address as well as the destination address.
-  For simplicity only the first address will be treated as an "origin"
-  address. All other addresses will be treated as destination addresses.
-
-Returns an array of HashRefs....
-[
-    {
-        origin_address         => $origin_address,
-        destination_address    => $destination_address,
-        element_status         => $element_status,
-        element_duration_text  => $element_duration_text,
-        element_duration_value => $element_duration_value,
-        element_distance_text  => $element_distance_text,
-        #------ This distance is ALWAYS in Meters.
-        element_distance_value => $element_distance_value,
-        distance_in_miles      => sub { calculate distance in miles },
-    },
-    {},
-]
-=cut
-
 sub get_google_matrix_data {
-    my $GoogTrMatrix  = shift;
+    my $GoogTrMatrix = shift;
+    croak 'Must pass Google::Travel::Matrix object! ' unless $GoogTrMatrix;
     my $itinerary_arr = shift;
-    my ( $matrix_data, @results_arr, @elements );
+    croak 'Must pass an Itinerary array! ' unless $itinerary_arr;
+    my ( @results_arr, @elements );
     try {
 
-#------ Treat the first itinerary address as the origin #       this is the only way that the first 20 miles rule
-#       works for now.
+        #------ Treat the first itinerary address as the origin
+        #       this is the only way that the first 20 miles rule
+        #       works for now.
         $GoogTrMatrix->origins( shift @$itinerary_arr );
         $GoogTrMatrix->destinations($itinerary_arr);
-        $matrix_data = $GoogTrMatrix->get_google_matrix_data_as_scalar_ref();
+        @elements = @{ $GoogTrMatrix->get_all_elements() };
     }
     catch {
         error 'Got an error with the address(s): ' . $_;
-        $my_errors{goog_matrix_addresses} = "Got an error with the addresses. ";
+        $MY_ERRORS{goog_matrix_addresses} = "Got an error with the addresses. ";
     };
-    my $google_status = $GoogTrMatrix->get_matrix_status_message($matrix_data);
-    if ( $google_status and $google_status eq $VALID_REQ ) {
-        @elements = @{ $GoogTrMatrix->get_all_elements($matrix_data) };
 
-    }
-    else {
-        error 'Google Distance Matrix returned a bad status message: '
-          . ( $google_status // q// );
-        $my_errors{goog_matrix_status} = $google_status |= q/ABBYNORMAL/;
-        $my_errors{goog_matrix_message} =
-          $google_status_messages{$google_status} // 'Google was so angry, it
-          didnt even return a proper status code!!!';
-        return;
-
-    }
     foreach my $itinerary (@elements) {
 
         #------ Google gives the distance value in meters. It gives a text
@@ -358,73 +527,50 @@ sub get_google_matrix_data {
     return \@results_arr;
 }
 
-=head2 get_all_itinerary_data
-  Get the iteinerary data from Google::Travel::Matrix
-  Get Mover Travel Time For each "From" "To" address combination.
-  Add it to each HashRef of Google::Travel::Matrix results.
-  Return an array with HashRefs of all itinerary data for each "To"/"From"
-  address element.
-  
-  @all_itinerary_data =
-  [
-    (
-    %google_matrix_result,
-    mover_travel_time_minutes => sub{ #calculate mover travel time},
-    mover_travel_time => {
-            hours         => int( $minutes / 60 ),
-            minutes       => $minutes % 60,
-            hours_minutes => $minutes / 60,
-        },
-    ), 
-    (
-    %google_matrix_result,
-    mover_travel_time_minutes => sub{},
-    mover_travel_time => {},
-    ), 
-    ..... 
-  ]
+#-------------------------------------------------------------------------------
+#  Is the address in NYC,  Including Manhattan, Bronx, Brooklyn,Queens, Staten
+#  Island
+#  Pass the address; addr1, addr2, city, state, zip
+#  Returns $TRUE if the address is in the 5 Boroughs
+#          $FALSE otherwise.
+#-------------------------------------------------------------------------------
+sub is_address_nyc {
+    my $address = shift;
+    debug 'Checking if this address ' . $address . ' is in NYC';
 
-=cut
+    #------ See if it is at least NY State
+    return $FALSE unless ( $address =~ /NY|New York/i );
+    debug $address . ' is in New York State';
 
-sub get_all_itinerary_data {
-    my @goog_matrix_results_with_tt;
-    my $total_mover_travel_time_minutes;
+    return $TRUE
+      if (
+        $address =~ /Bronx,|Brooklyn,|New York,\s*?NY|New York,\s*?New
+          York|New York City|Queens,|Staten Island,/i
+      );
 
-    #------- Get the array of Google Matrix Element Results
-    #        Add a new key/value to the Element results HashRef
-    #        This key/value pair will be
-    #        'mover_travel_time' => $mover_travel_time
-    #
-    my $google_itinerary_data = get_google_itinerary_data();
-    return
-      unless ( $google_itinerary_data
-        and ref($google_itinerary_data) eq 'ARRAY' );
-    for my $goog_mx_el_result (@$google_itinerary_data) {
-        if ( $goog_mx_el_result->{element_status} eq $OK ) {
+    #------ If there is a zip code and it is a NYC
+    #       zip, we are lucky(or not depending on your perspective).
+    if ( $address =~ $RE{zip}{US}{ -extended => ['allow'] }{-keep} ) {
+        my $zip         = $4;
+        my $first_three = $3;
+        debug 'US five digit Zip is ' . $zip;
 
-            #------ Get a grand total travel time in minutes.
-            $total_mover_travel_time_minutes += my $mover_travel_time_minutes =
-              convert_miles_to_travel_time(
-                $goog_mx_el_result->{distance_in_miles} );
-            %$goog_mx_el_result = (
-                %$goog_mx_el_result,
-                mover_travel_time_minutes => $mover_travel_time_minutes,
-                mover_travel_time =>
-                  convert_minutes_to_hours_minutes($mover_travel_time_minutes),
-            );
+        #------- Definately not NYC if the first 3 digits of Zip is not NYC
+        return $FALSE if $first_three < config->{City}{NYC}{zip_code_three_max};
 
+        #------- Check for match with nyc_zips database table
+        my $matching_zip;
+        connect_to_cities() unless $DBH;
+        try {
+            $matching_zip = select_nyc_zip( $DBH, [$zip] );
         }
-        else {
-            %$goog_mx_el_result = (
-                %$goog_mx_el_result,
-                mover_travel_time_minutes => 0,
-                mover_travel_time         => 0,
-            );
-        }
-
-        push @goog_matrix_results_with_tt, $goog_mx_el_result;
+        catch {
+            error 'Problem accessing zip info from cities database: ' . $_;
+            $MY_ERRORS{db_error} = $_;
+        };
+        return $TRUE if ( $matching_zip && ( @$matching_zip >= 1 ) );
     }
-    return \@goog_matrix_results_with_tt;
+    return $FALSE;
 }
 
 #-------------------------------------------------------------------------------
@@ -434,7 +580,7 @@ sub get_all_itinerary_data {
 
 =head2 convert_miles_to_travel_time
  Uses this method:
-    The first 20 miles is 60 minutes.
+    The first 40 miles is 60 minutes.
     Each 10 miles after that is 15 mins
     Note:  
         15 minutes is the smallest time unit.
@@ -444,6 +590,33 @@ sub get_all_itinerary_data {
 =cut
 
 sub convert_miles_to_travel_time {
+
+    #------ Not concerned with faction of mile.
+    my $distance = abs(shift);
+    return 60 if ( $distance <= 40 );
+    my $time_minutes = 60;
+    $distance -= 40;
+    my $mod;
+    my $dist_rounded =
+      ( ( $mod = $distance % 10 ) == 0 )
+      ? int $distance
+      : int( $distance += ( 10 - $mod ) );
+
+    return $time_minutes += ( $dist_rounded / 10 ) * 15;
+}
+
+=head2 convert_miles_to_travel_time_nyc
+ Uses this method for journeys starting or ending in NYC(including 5 boroughs):
+    The first 20 miles is 60 minutes.
+    Each 10 miles after that is 15 mins
+    Note:  
+        15 minutes is the smallest time unit.
+        The given milage is converted to an integer, therefore removing any fractions.
+        This integer milage is rounded up to next highest 10 miles.
+
+=cut
+
+sub convert_miles_to_travel_time_nyc {
 
     #------ Not concerned with faction of mile.
     my $distance = abs(shift);
@@ -464,6 +637,7 @@ sub convert_miles_to_travel_time {
 #  Returns a HashRef with hours, minutes and hours with hour fractions;
 #-------------------------------------------------------------------------------
 sub convert_minutes_to_hours_minutes {
+    return 0 unless $_[0];
     my $minutes = shift;
     return {
         hours         => int( $minutes / 60 ),
@@ -476,12 +650,122 @@ sub convert_minutes_to_hours_minutes {
 #  Convert meters to miles.
 #-------------------------------------------------------------------------------
 sub convert_from_meters_to_miles {
+    return 0 unless $_[0];
     my $miles = $_[0] * 0.000621371;
     return sprintf( "%.1f", $miles );
 }
 
 sub convert_from_miles_to_meters {
+    return 0 unless $_[0];
     return $_[0] * 1609.34;
+}
+
+#-------------------------------------------------------------------------------
+#  Open File
+#-------------------------------------------------------------------------------
+sub slurp_file {
+    my $file = shift;
+    open my $fh, '<', $file
+      or die "Cannot open '$file' for reading: $!";
+    return do { local $/; <$fh> };
+}
+
+#-------------------------------------------------------------------------------
+#  Connect to the Cities Database
+#-------------------------------------------------------------------------------
+sub connect_to_cities {
+    try {
+        $DBH = db_handle( config->{Bootstrap}{Typeahead}{city_db} );
+    }
+    catch {
+        error 'Problem connecting to cities database: ' . $_;
+        $MY_ERRORS{db_error} = $_;
+    };
+}
+
+#-------------------------------------------------------------------------------
+#  Validation
+#-------------------------------------------------------------------------------
+sub validate_quick_form {
+    croak 'Can only validate params as a HashRef!'
+      unless ( ref( $_[0] ) eq 'HASH' );
+    my $in_params = shift;
+
+    my %addr_element = ( 0 => 'City', 1 => 'State', 2 => 'County' );
+
+    #------ Split each address into its components, trim and validate
+    for my $p ( keys %$in_params ) {
+        my @city_state_cty = split( ',', $in_params->{$p} );
+        @city_state_cty =
+#          grep {/\P{IsAlpha}| |\-/}
+          grep { /\w| |\-/ }
+          map { s/^\s+//; s/\s+\z//; $_ } @city_state_cty;
+
+        #          map { s/^\s+//; s/\s+\z//; s/\W/ /g; $_ } @city_state_cty;
+        debug 'City, state ,  county after trimming are : ' . join ',',
+          @city_state_cty;
+        if ( @city_state_cty < 2 ) {
+            $MY_ERRORS{input_address} = 'You must enter a City/Town, State
+        Name, and even the County too!';
+            return;
+        }
+
+        #------ Verify lengths of city, state and county
+        #------ city = 0 state = 1 county = 2
+        for ( my $i = 0 ; $i <= $#city_state_cty ; $i++ ) {
+
+            my $length = length( $city_state_cty[$i] // q// );
+
+            #--- State has a smaller min_length to allow for state codes.
+            my $min_length = (
+                  $i == 1
+                ? $MIN_ADDR_STATE_FIELD_LEN
+                : $MIN_ADDR_FIELD_LEN
+            );
+            if ( $length < $min_length ) {
+                error $addr_element{$i}
+                  . ' name is too short! '
+                  . ( $city_state_cty[$i] // '<EMPTY>' );
+                $MY_ERRORS{ $addr_element{$i} } =
+                  $addr_element{$i} . ' name is too short!';
+            }
+            if ( $length > $MAX_ADDR_FIELD_LEN ) {
+                error $city_state_cty[$i] . ': '
+                  . $addr_element{$i}
+                  . '  name is too long!';
+                $MY_ERRORS{ $addr_element{$i} } =
+                  $addr_element{$i} . ' name is too long!';
+            }
+
+           #------ Verify State Name. If state code given, convert it to a state
+           #       name.
+           #       Only for the state stored in the hidden field
+            if ( $i == 1 && $p =~ /^h-address/ ) {
+
+                #----- If it is not a state name,  see if it is a State Code
+                #      that can be converted to a state name. If not, then
+                #      it must be invalid.
+                if ( not get_state_code_from_name( $city_state_cty[$i] ) ) {
+                    if ( my $state_name =
+                        get_state_name_from_code( $city_state_cty[$i] ) )
+                    {
+                        $city_state_cty[$i] = $state_name;
+                    }
+                    else {
+                        error 'State error for : ' . $city_state_cty[$i];
+                        $MY_ERRORS{input_address} =
+                          $city_state_cty[$i] . ' Is an invalid state name!';
+                    }
+                }
+            }
+        }
+        $in_params->{$p} = \@city_state_cty;
+    }
+
+    return if ( keys %MY_ERRORS );
+    debug 'Validated params are : ' . dump $in_params;
+
+    return $in_params;
 }
 
 #-------------------------------------------------------------------------------
@@ -494,7 +778,7 @@ __END__
 =cut
 
 =head1 VERSION
-Version 0.01
+Version 0.02
 =cut
 
 =head1 SYNOPSIS
@@ -556,7 +840,7 @@ See http://dev.perl.org/licenses/ for more information.
         element_distance_text  => $element_distance_text,   # imperial or metric
         element_distance_value => $element_distance_value,  # Given in meters
         distance_in_miles =>
-          sub { c_convert_from_meters_to_miles($element_distance_value) },
+          sub { convert_from_meters_to_miles($element_distance_value) },
         mover_travel_time_minutes =>
           sub { convert_miles_to_travel_time($distance_in_miles) },
         mover_travel_time => {

@@ -1,23 +1,16 @@
-    <div class="alert alert-error row-fluid">
-      <p class="lead">[% travel_time_heading  || 'Get Thee hence!' %]</p>
-    </div> <!-- /row-fluid -->
+<div class="alert alert-error row-fluid">
+   <h2 class="text-center">[% error_page_heading  || 'Get Thee hence!' %]</h2>
 
-    <div class="row-fluid">
-        [%# One way to loop through a hash %]
-        [% FOREACH error_msg_pair IN error_messages.pairs %]
-            <div class="row-fluid alert">
-                <div class="span2">
-                    [% error_msg_pair.key %]
-                </div>
-                <div class="span4">
-                    [% error_msg_pair.value  %]
-                </div>
-            </div>
-        [% END %]
-     </div> <!-- /row-fluid -->
+      [%# One way to loop through a hash %]
+      [% FOREACH error_msg_pair IN error_messages.pairs %]
+        <div class="row-fluid alert text-left">
+          <strong> [% error_msg_pair.key _ " : " %] </strong> [% error_msg_pair.value  %]
+        </div>
+      [% END %]
+</div> <!-- /row-fluid -->
 
 <div class="row-fluid">
-<a class="btn btn-primary" href="[% travel_time_start  %]">Get Travel Times</a>
+<a class="btn btn-primary" href="[% home  %]">Go To Travel Times</a>
 </div> <!-- /row-fluid -->
 
 

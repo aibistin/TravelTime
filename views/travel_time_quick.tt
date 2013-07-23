@@ -1,0 +1,216 @@
+<!-- Travel Matrix Quickie Form -->
+[% USE Math %]
+
+[% IF quick_form_addresses %] [%# Only display form if necessary. #%]
+    <form name="[% form_name  %]" id="[% form_name %]"
+    action="[% form_action %]" method="[% form_method || post %]"
+    class="form-vertical" >
+
+    <fieldset >
+    <legend>
+        <p class="lead">
+            [%- 
+                travel_time_heading 
+                || 'Calcluate Moving Truck Travel Time'
+            -%]
+        </p>
+    </legend>
+
+    <!--  Start messages -->
+        <div id="messages">
+        <p class="text-success">[%- success_message -%]</p>
+        <p class="text-error">[%- error_message -%]</p>
+        <p class="text-warning">[%- warning_message -%]</p>
+        <p class="text-info">[%- info_message -%]</p>
+        </div>
+    <!-- End  messages -->
+
+    <div class="row-fluid">
+
+    <div class="span4 well">
+
+        [% started_new_row  = 0  %]  [%# To specify how many Addresses per line %]
+        <!--- two to a line -->
+        [% FOREACH address IN quick_form_addresses -%]
+
+            [%  IF ((loop.count == 1) || ((loop.count % 2) == 0))   %]
+            [% IF ( started_new_row == 1) %]
+                </div> <!-- /row-fluid closing previous row -->
+            [%  END %]
+            <div class="row-fluid">
+            [% started_new_row  = 1 %]
+            [% END %]
+
+        
+    [% IF loop.first %]
+        <div class="span11">
+        <span class="text-info">
+            <abbr title='Enter the starting location''>Start Location</abbr>
+        </span>
+        <div class="control-group">
+        <!-- Bootstrap Typeahead -->
+            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <div class="controls">
+            <input type="text"
+                class="cityStatesTypeahead span10 input-append"
+                name="address-[% loop.count %]"
+                id="address-[% loop.count %]" value="[% address %]"
+                placeholder="City/Town, State" 
+                autocomplete="off"
+                data-provide="typeahead"
+                required="required" 
+                autofocus
+                />
+                <span class="addQmark"><i class="iconic-question-mark"></i></span>
+            </div>
+            <input type="hidden"
+                name="h-address-[% loop.count %]"
+                id="h-address-[% loop.count %]"
+                value=""
+                />
+            </div>
+        </div> <!-- /span11 -->
+    [% ELSIF loop.last  %] 
+        <div class="span11">
+        <span class="text-info">
+            <abbr title='The next version will have an option for more destination
+            points.'>End Location</abbr>
+        </span>
+        <div class="control-group">
+            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <div class="controls">
+                <input type="text"
+                    class="cityStatesTypeahead span10"
+                    name="address-[% loop.count %]"
+                    id="address-[% loop.count %]" value="[% address %]"
+                    placeholder="City/Town, State" 
+                    autocomplete="off"
+                    data-provide="typeahead"
+                    required="required" />
+            <input type="hidden"
+                name="h-address-[% loop.count %]"
+                id="h-address-[% loop.count %]"
+                value=""
+                />
+            </div>
+        </div>
+        </div> <!-- /span11 -->
+    [% ELSE %]
+        <div class="span11">
+            <span class="text-info">City/Town</span>
+            <div class="control-group">
+            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <div class="controls">
+                <input type="text" 
+                class="cityStatesTypeahead span10"
+                name="address-[% loop.count %]"
+                id="address-[% loop.count %]" value="[% address %]" 
+                placeholder="City/Town, State"
+                autocomplete="off"
+                data-provide="typeahead"
+                required="required" />
+            <input type="hidden"
+                name="h-address-[% loop.count %]"
+                id="h-address-[% loop.count %]"
+                value=""
+                />
+            </div>
+        </div>
+        </div> <!-- /span11 -->
+    [% END %]
+    [% END %]
+
+        [% IF ( started_new_row == 1) %] [%# Close div tag at end of each row %]
+            </div> <!-- /row-fluid -->
+            [% started_new_row  = 0 %]
+        [%  END %]
+
+    </div> <!-- /span8 -->
+
+
+    </div> <!-- /row-fluid -->
+
+    <div class="row-fluid">
+        <button class="btn btn-primary" type="submit" >Get Travel Time</button>
+    </div> <!-- /row-fluid -->
+
+    </fieldset>
+    </form>
+
+[% END %] [%# End of form #%]
+
+[% IF (my_errors) %]
+    <div class="alert alert-error row-fluid">
+        <div class="span11"><b>[% error_message  || 'What a mess!' %]</b></div>
+        [%# One way to loop through a hash %]
+        [% FOREACH error IN my_errors.values %]
+            <div class="span11"> [% error %]</div>
+        [% END %]
+        <div class="span11"> 
+           <a class="btn btn-warning" href="[% travel_time_start  %]">Try Again</a>
+        </div> <!-- /span11 -->
+    </div> <!-- /row-fluid -->
+[% ELSIF mover_distance_results  %]
+    <!-- Success -->
+    <div class="row-fluid">
+
+    <p class="lead text-left">[%- result_heading  || 'Truck Travel Times'-%] </p>
+    <table class="table  table-hover table-condensed table-bordered">
+        <caption>[%- results_table_heading || 'Travel Times' -%]</caption>
+        <thead>
+            <tr>
+               <th>#</th>
+               <th>From </th>
+               <th>To </th>
+               <th>Mileage</th>
+               <th>Google Status</th>
+               <th><abbr title="First 20 miles from NYC is one hour.Every 10 miles after that is 15 minutes.">Truck Travel Time</abbr></th>
+            </tr>
+        </thead>
+        <tbody>
+          [% set total_travel_time_mins = 0 %]
+          [% FOREACH mt_result_h IN mover_distance_results -%]
+          <tr>
+           <td>[% loop.count %]</td>
+            <td>[%- mt_result_h.origin_address -%] </td>
+            <td>[%- mt_result_h.destination_address -%] </td>
+            <td>[%- mt_result_h.distance_in_miles  -%] </td>
+            <td>[%- mt_result_h.element_status  -%] </td>
+            [% IF mt_result_h.mover_travel_time.minutes %]
+              <td>
+                [%- mt_result_h.mover_travel_time.hours -%]
+                [%- mt_result_h.mover_travel_time.hours  > 1 ? " hours" : " hour" %]
+
+                [% mt_result_h.mover_travel_time.minutes -%] minutes.
+              </td>
+            [% ELSE %]
+              <td>
+                [%- mt_result_h.mover_travel_time.hours.defined ?  mt_result_h.mover_travel_time.hours : 0 -%]
+                [%-   mt_result_h.mover_travel_time.hours  > 1 ? " hours" :
+                mt_result_h.mover_travel_time.hours  == 1 ? " hour" : ""  -%] 
+              </td>
+            [% END %]
+            [%  total_travel_time_mins = total_travel_time_mins +
+            mt_result_h.mover_travel_time_minutes %]
+          </tr>
+          [% END %]
+               [% travel_time_hours = Math.int(total_travel_time_mins / 60) %]
+               [% travel_time_mins = (total_travel_time_mins % 60) %]
+          <tr>
+            <td colspan="6">
+              Total Travel Time: [% travel_time_hours %] hours
+              [% IF  travel_time_mins %]
+                [% travel_time_mins %] minutes
+              [% END %]
+              .
+           </td>
+          </tr>
+        </tbody>
+    </table>
+
+</div> <!-- /row-fluid -->
+<div class="row-fluid">
+    <a class="btn btn-primary" href="[% travel_time_start  %]">Try Another</a>
+</div> <!-- /row-fluid -->
+[%  END %]
+

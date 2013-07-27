@@ -52,6 +52,7 @@ my $OK           = q/OK/;
 my $NOT_FOUND    = q/NOT_FOUND/;
 my $ZERO_RESULTS = q/ZERO_RESULTS/;
 
+set layout => 'main';
 #---- Connect to Database
 hook before => sub {
     connect_to_cities() unless $DBH;

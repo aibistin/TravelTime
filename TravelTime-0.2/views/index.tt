@@ -1,0 +1,9 @@
+<!-- Introduction to the CarryOnMoving.net page -->
+
+<p class="lead text-left">[%- intro_heading  || 'Truck Travel Time Calculator '-%] </p>
+<div class="row-fluid">
+<a class="btn btn-primary" href="[% travel_time_quick  %]">Quick And Dirty Travel Time</a>
+<a class="btn btn-primary" href="[% travel_time_start  %]">Travel Time With Exact Address</a>
+</div> <!-- /row-fluid -->
+
+

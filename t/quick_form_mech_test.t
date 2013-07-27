@@ -29,19 +29,19 @@ use TravelTime;
 #-------------------------------------------------------------------------------
 #  Constants
 #-------------------------------------------------------------------------------
-my $LOCALHOST                = q{localhost:5000};
+my $WEBSITE_HOME                = q{http://www.carryonmoving.net};
 my $TRAVEL_TIME_START        = q{/travel_time};
 my $TRAVEL_TIME_QUICK        = q{/quick};
 my $MIN_ADDR_FIELD_LEN       = 3;
 my $MIN_ADDR_STATE_FIELD_LEN = 2;
 my $MAX_ADDR_FIELD_LEN       = 80;
-my $BASE                     = $LOCALHOST;
+my $BASE                     = $WEBSITE_HOME;
 
 my $lint = HTML::Lint->new( only_types => HTML::Lint::Error::STRUCTURE );
 my $mech = Test::WWW::Mechanize->new( autolint => $lint );
 
 $mech->get_ok($BASE . $TRAVEL_TIME_QUICK);
-$mech->base_is( $BASE, 'Proper <BASE HREF>' );
+$mech->base_is( $BASE . $TRAVEL_TIME_QUICK, 'Proper <BASE HREF>' );
 $mech->title_is(
     'Mover Travel Time Calculator', "Make sure we're on the
     Quick Travel Time Calculator Page"
@@ -59,3 +59,19 @@ $mech->text_contains( 'Austin Kenny', 'I\'m there!!!' );
 
 $mech->content_like( qr/truck travel time/, 'truck travel time line is there' );
 $mech->content_like( qr/(cpan|perl)\.org/,  'Link to perl.org or CPAN' );
+
+
+$mech->page_links_ok('Check all links');
+#------ Stuff the form fields
+$mech->stuff_inputs(  fill => '@' );
+$mech->stuff_inputs(  fill => 'ak' );
+$mech->stuff_inputs(  fill => '1' );
+$mech->stuff_inputs(  fill => 'ak' );
+
+
+$mech->lacks_uncapped_inputs( 'Has max length fields!');
+$mech->grep_inputs( {
+   type => 'text', 
+   name => 'address-1'
+    });
+

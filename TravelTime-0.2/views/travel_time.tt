@@ -1,0 +1,97 @@
+<!-- Travel Matrix Form -->
+<form name="[% tm_form.name %]" id="[% tm_form.name %]"
+  action="[% tm_form.action %]" method="[% tm_form.http_method %]"
+  class="form-vertical" >
+
+
+<fieldset >
+   <legend>
+      <p class="lead">
+         [%- 
+             travel_time_heading 
+             || 'Calcluate Moving Truck Travel Time'
+         -%]
+      </p>
+   </legend>
+
+<!--  Start messages -->
+    <div id="messages">
+    <p class="text-success">[%- success_message -%]</p>
+    <p class="text-error">[%- error_message -%]</p>
+    <p class="text-warning">[%- warning_message -%]</p>
+    <p class="text-info">[%- info_message  -%]</p>
+    </div>
+<!-- End  messages -->
+
+    [% started_new_row  = 0  %]  [%# To specify how many Addresses per line %]
+    <!--- four to a line -->
+    [% FOREACH address_element IN tm_form.field('addresses').fields -%]
+        [%  IF ((loop.count == 1) || ((loop.count % 5) == 0))   %]
+
+          [% IF ( started_new_row == 1) %]
+              <!-- Close previous row before opening a new one. -->
+               </div> <!-- /row-fluid -->
+          [%  END %]
+          <div class="row-fluid">
+          [% started_new_row  = 1 %]
+        [% END %]
+
+        <div class="span3 well">
+        
+          [% IF loop.first %]
+              <span class="text-info">
+                <abbr title='Calculations are based from a starting point in central New York City.'>
+                First Address
+                </abbr>
+              </span>
+          [% ELSIF loop.last  %] 
+              <span class="text-info">
+                  <abbr title='The next version will have an option for more destination points.'>
+                  Last Address</abbr>
+              </span>
+
+          [% ELSE %]
+              <span class='text-info'>Address [% loop.count %]</span>
+          [% END %]
+          
+          [% address_element.render %]
+
+        </div> <!-- /span3 -->
+    [% END %]
+
+    [% IF ( started_new_row == 1) %] [%# Close div tag at end of each row %]
+        </div> <!-- /row-fluid -->
+        [% started_new_row  = 0 %]
+    [%  END %]
+
+
+
+<div class="row-fluid">
+    [% tm_form.field('submit').render %]
+</div> <!-- /row-fluid -->
+</fieldset>
+</form>
+
+</div> <!-- /row-fluid -->
+
+[% IF ( tm_form.is_valid) %]
+
+    [% IF (my_errors) %]
+        <div class="alert alert-error">
+        <span><b>[% error_message  || 'What a mess!' %]</b></span>
+        [%# One way to loop through a hash %]
+        [% FOREACH error IN my_errors.values %]
+         <span> [% error %]</span>
+         [% END %]
+        </div>
+    [%  END %]
+    
+[% ELSIF ( tm_form.errors) %]
+    <div class="alert alert-error row-fluid">
+        [% FOREACH error IN tm_form.errors -%]
+        <span class="span2">[% error %]</span>
+        [% END %]
+    </div>
+[%  END %]
+
+

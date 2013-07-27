@@ -1,0 +1,80 @@
+NAME
+    TravelTime - Calculate fixed travel times for Commercial Moving Truck
+
+VERSION
+    version 0.2
+
+SYNOPSIS
+  convert_miles_to_travel_time
+ Uses this method:
+    The first 40 miles is 60 minutes.
+    Each 10 miles after that is 15 mins
+    Note:  
+        15 minutes is the smallest time unit.
+        The given milage is converted to an integer, therefore removing any fractions.
+        This integer milage is rounded up to next highest 10 miles.
+  convert_miles_to_travel_time_nyc
+ Uses this method for journeys starting or ending in NYC(including 5 boroughs):
+    The first 20 miles is 60 minutes.
+    Each 10 miles after that is 15 mins
+    Note:  
+        15 minutes is the smallest time unit.
+        The given milage is converted to an integer, therefore removing any fractions.
+        This integer milage is rounded up to next highest 10 miles.
+NAME
+ TravelTime -  Calculate Truck Travel Times
+VERSION
+Version 0.02
+DESCRIPTION
+ This application allows a user to calculate the standard travel time between
+ two points based on the New York City Department of Transportation guidelines
+ for Household Goods Carriers.
+SEE ALSO
+    *   Dancer
+
+    *   Template::Toolkit =item *
+
+         L<Email::Sender>
+
+AUTHOR
+    Austin Kenny, "<aibistin.cionnaith at gmail.com>"
+
+ACKNOWLEDGEMENTS
+       All CPAN Contributers
+LICENSE AND COPYRIGHT
+    Copyright 2013 Austin Kenny.
+
+    This program is free software; you can redistribute it and/or modify it
+    under the terms of either: the GNU General Public License as published
+    by the Free Software Foundation; or the Artistic License.
+
+    See http://dev.perl.org/licenses/ for more information.
+
+  The Results Array
+    {
+        origin_address         => $origin_address,
+        destination_address    => $destination_address,
+        element_status         => $element_status,
+        element_duration_text  => $element_duration_text,
+        element_duration_value => $element_duration_value,
+        element_distance_text  => $element_distance_text,   # imperial or metric
+        element_distance_value => $element_distance_value,  # Given in meters
+        distance_in_miles =>
+          sub { convert_from_meters_to_miles($element_distance_value) },
+        mover_travel_time_minutes =>
+          sub { convert_miles_to_travel_time($distance_in_miles) },
+        mover_travel_time => {
+            hours         => int( $minutes / 60 ),
+            minutes       => $minutes % 60,
+            hours_minutes => $minutes / 60,
+        },
+    }
+AUTHOR
+    Austin Kenny <aibistin.cionnaith@gmail.com>
+
+COPYRIGHT AND LICENSE
+    This software is copyright (c) 2013 by Austin Kenny.
+
+    This is free software; you can redistribute it and/or modify it under
+    the same terms as the Perl 5 programming language system itself.
+

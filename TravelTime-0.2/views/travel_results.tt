@@ -1,0 +1,80 @@
+[% USE Math %]
+ 
+<div class="row-fluid">
+<!-- Travel Time Results Page-->
+    <p class="lead text-left">[%- result_heading  || 'Truck Travel Times'-%] </p>
+    <table class="table  table-hover table-condensed table-bordered">
+        <caption>[%- results_table_heading || 'Travel Times' -%]</caption>
+        <thead>
+            <tr>
+               <th>#</th>
+               <th>From </th>
+               <th>To </th>
+               <th>Mileage</th>
+               <th>Google Status</th>
+               <th><abbr title="First 20 miles from NYC is one hour.Every 10 miles after that is 15 minutes.">Truck Travel Time</abbr></th>
+            </tr>
+        </thead>
+        <tbody>
+          [% set total_travel_time_mins = 0 %]
+          [% FOREACH mt_result_h IN mover_distance_results -%]
+          <tr>
+           <td>[% loop.count %]</td>
+            <td>[%- mt_result_h.origin_address -%] </td>
+            <td>[%- mt_result_h.destination_address -%] </td>
+            <td>[%- mt_result_h.distance_in_miles  -%] </td>
+            <td>[%- mt_result_h.element_status  -%] </td>
+            [% IF mt_result_h.mover_travel_time.minutes %]
+              <td>
+                [%- mt_result_h.mover_travel_time.hours -%]
+                [%- mt_result_h.mover_travel_time.hours  > 1 ? " hours" : " hour" %]
+
+                [% mt_result_h.mover_travel_time.minutes -%] minutes.
+              </td>
+            [% ELSE %]
+              <td>
+                [%- mt_result_h.mover_travel_time.hours || 0 -%]
+                [%-   mt_result_h.mover_travel_time.hours  > 1 ? " hours" :
+                mt_result_h.mover_travel_time.hours  == 1 ? " hour" : ""  -%] 
+              </td>
+            [% END %]
+            [%  total_travel_time_mins = total_travel_time_mins +
+            mt_result_h.mover_travel_time_minutes %]
+          </tr>
+          [% END %]
+               [% travel_time_hours = Math.int(total_travel_time_mins / 60) %]
+               [% travel_time_mins = (total_travel_time_mins % 60) %]
+          <tr>
+            <td colspan="6">
+              Total Travel Time: [% travel_time_hours %] hours
+              [% IF  travel_time_mins %]
+                [% travel_time_mins %] minutes
+              [% END %]
+              .
+           </td>
+          </tr>
+        </tbody>
+    </table>
+</div> <!-- /row-fluid -->
+
+    [% IF success_message %] 
+        <p class="text-success text-left">[%- success_message -%]</p>
+    [% END %]
+    [% IF info_message %] 
+        <p class="text-info text-left">[%- info_message -%]</p>
+    [% END %]
+    [% IF warning_message %] 
+        <p class="text-warning text-left">[%- warning_message -%]</p>
+     [% END %]
+    [% IF error_message %] 
+        <p class="text-error span6">[%- error_message -%]</p>
+    [% END %]
+
+<div class="row-fluid">
+    <!--- Put Google Maps Here -->
+</div> <!-- /row-fluid -->
+
+<div class="row-fluid">
+<a class="btn btn-primary" href="[% travel_time_start  %]">Try Another</a>
+<!-- <a class="btn btn-inverse" href="[% travel_time_edit  %]">Edit Addresses</a> -->
+</div> <!-- /row-fluid -->

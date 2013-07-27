@@ -3,17 +3,12 @@
 
 [% IF quick_form_addresses %] [%# Only display form if necessary. #%]
     <form name="[% form_name  %]" id="[% form_name %]"
-    action="[% form_action %]" method="[% form_method || post %]"
+    action="[% form_action %]" method="[% form_method || "post" %]"
     class="form-vertical" >
 
-    <fieldset >
-    <legend>
-        <p class="lead">
-            [%- 
-                travel_time_heading 
-                || 'Calcluate Moving Truck Travel Time'
-            -%]
-        </p>
+    <fieldset>
+    <legend class="text-info">
+       [%- travel_time_heading || 'Calcluate Moving Truck Travel Time' -%]
     </legend>
 
     <!--  Start messages -->
@@ -45,23 +40,23 @@
     [% IF loop.first %]
         <div class="span11">
         <span class="text-info">
-            <abbr title='Enter the starting location''>Start Location</abbr>
+            <abbr title='Enter the starting location'>Start Location</abbr>
         </span>
         <div class="control-group">
         <!-- Bootstrap Typeahead -->
-            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <label class="control-label" for="address-[% loop.count %]">[% warning_message %]</label>
             <div class="controls">
-            <input type="text"
-                class="cityStatesTypeahead span10 input-append"
-                name="address-[% loop.count %]"
-                id="address-[% loop.count %]" value="[% address %]"
-                placeholder="City/Town, State" 
-                autocomplete="off"
-                data-provide="typeahead"
-                required="required" 
-                autofocus
-                />
-                <span class="addQmark"><i class="iconic-question-mark"></i></span>
+                <input type="text"
+                    class="cityStatesTypeahead span9 input-append"
+                    name="address-[% loop.count %]"
+                    id="address-[% loop.count %]" value="[% address %]"
+                    placeholder="City/Town, State" 
+                    autocomplete="off"
+                    data-provide="typeahead"
+                    required="required" 
+                    autofocus
+                    />
+                    <span class="addQmark"><i class="iconic-question-mark"></i></span>
             </div>
             <input type="hidden"
                 name="h-address-[% loop.count %]"
@@ -77,10 +72,10 @@
             points.'>End Location</abbr>
         </span>
         <div class="control-group">
-            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <label class="control-label" for="address-[% loop.count %]">[% warning_message %]</label>
             <div class="controls">
                 <input type="text"
-                    class="cityStatesTypeahead span10"
+                    class="cityStatesTypeahead span9"
                     name="address-[% loop.count %]"
                     id="address-[% loop.count %]" value="[% address %]"
                     placeholder="City/Town, State" 
@@ -99,10 +94,10 @@
         <div class="span11">
             <span class="text-info">City/Town</span>
             <div class="control-group">
-            <label class="control-label" for="inputWarning">[% warning_message %]</label>
+            <label class="control-label" for="address-[% loop.count %]">[% warning_message %]</label>
             <div class="controls">
                 <input type="text" 
-                class="cityStatesTypeahead span10"
+                class="cityStatesTypeahead span9"
                 name="address-[% loop.count %]"
                 id="address-[% loop.count %]" value="[% address %]" 
                 placeholder="City/Town, State"

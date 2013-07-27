@@ -56,6 +56,7 @@ set layout => 'main';
 #---- Connect to Database
 hook before => sub {
     connect_to_cities() unless $DBH;
+    error 'Didnt get the DBH!'  unless $DBH;
 };
 
 #-------------------------------------------------------------------------------

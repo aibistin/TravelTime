@@ -3,7 +3,7 @@
 
 [% IF quick_form_addresses %] [%# Only display form if necessary. #%]
     <form name="[% form_name  %]" id="[% form_name %]"
-    action="[% form_action %]" method="[% form_method || "post" %]"
+    action="[% form_action %]" method="[% form_method || post %]"
     class="form-vertical" >
 
     <fieldset>

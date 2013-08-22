@@ -943,6 +943,11 @@ Version 0.02
  This application allows a user to calculate the standard travel time between
  two points based on the New York City Department of Transportation guidelines
  for Household Goods Carriers.
+ The first 40 miles is 1 hour 
+ If the start or end point is NYC then the first 20 miles is 1 hour
+ Each subsequent 40 miles is 1 hour( or each 10 miles is 15 minutes)
+ Within NYC the Travel time within a Borough is 30 minutes. 
+ Between boroughs it is 45 minutes.
 
 =head1 SEE ALSO
 

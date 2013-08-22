@@ -33,7 +33,7 @@ updater: function (item) {
 });
 // Ajax call to Perl Dancer Script, which returns an Array Ref
 // of sorted City, State and County data.
-var debounceWait = 50;
+var debounceWait = 100;
 // Use Underscore JS function '_debounce' to ensure that the
 // search waits for specific number of miliseconds before running again.
 var cityStates = {};
@@ -43,17 +43,17 @@ var searchForPlaces = _.debounce(function( query,  process ){
     cityStates = {};
     cityNames = [];
         var counter = 0;
-        //console.log('Got this City State Data: ' + data.city_states);
+        // console.log('Got this City State Data: ' + data.city_states);
     _.each( data.city_states,  function( item,  ix,  list ){
         item.label = item + '-' + (counter++);
-        // console.log('Got this item from AJAX : ' + item);
+         // console.log('Got this item from AJAX : ' + item);
         cityStates[item.label] = {
                 city : item[0],   
                 state : item[1],  
                 county : item[2]
         };
         //add selected items to diaplay array
-       // console.log('Add this to the array ' + item.label);
+        // console.log('Add this to the array ' + item.label);
         cityNames.push(item.label);
 
     });
@@ -65,7 +65,7 @@ var searchForPlaces = _.debounce(function( query,  process ){
 
 //Highlighter Function
 var highLightSelect = function(item){
-//    console.log("      Item inside hilighter " + item);
+    // console.log("      Item inside hilighter " + item);
    var c = cityStates[item];
    return ''
        + "<div class='typeahead_wrapper'>"
@@ -80,6 +80,7 @@ var highLightSelect = function(item){
 // Add the required data into the input field
 var updateField = function(item){
    var c = cityStates[item];
+//   console.log("      Item inside Updater " + c);
    //Hidden field will contain all the valuable data
     $( "#h-" + hiddenId ).val( c.city + ',' + c.state + ',' + c.county );
    //This is the data for diaplay on input box

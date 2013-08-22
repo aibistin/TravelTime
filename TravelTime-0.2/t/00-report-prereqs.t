@@ -19,9 +19,7 @@ my @modules = qw(
   DateTime
   Exporter::NoWork
   ExtUtils::MakeMaker
-  File::Find
   File::Spec::Functions
-  File::Temp
   Google::Travel::Matrix
   HTML::Lint
   List::MoreUtils
@@ -33,6 +31,7 @@ my @modules = qw(
   Regexp::Common
   Template
   Test::Exception
+  Test::LeakTrace
   Test::More
   Test::WWW::Mechanize
   Try::Tiny

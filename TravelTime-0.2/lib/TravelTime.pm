@@ -5,6 +5,9 @@ use autodie;
 use Dancer2;
 use Dancer2::Plugin::Ajax;
 our $VERSION = '0.2';
+use Log::Any::Adapter qw/Stdout/;
+use Log::Log4perl qw(:easy);
+Log::Log4perl->easy_init($DEBUG);
 
 #----My HTML::Formhandler Module
 use Mover::Form::Travel::Matrix;
@@ -21,11 +24,8 @@ use Regexp::Common qw /zip/;
 #  Prepare_select_city_state_cty_ord
 use MyDatabase qw/
   db_handle
-  prepare_select_nyc_places_ord
   select_city_state_cty
   select_nyc_zip
-  execute_select
-  fetchall_arrayref
   get_state_code_from_name
   get_state_name_from_code
   /;
@@ -44,7 +44,25 @@ my $TRAVEL_TIME_QUICK          = q{/quick};
 my $MIN_ADDR_FIELD_LEN         = 3;
 my $MIN_ADDR_STATE_FIELD_LEN   = 2;
 my $MAX_ADDR_FIELD_LEN         = 80;
+my $IS_IT_NYC_RX = qr/Bronx\s*?$|Brooklyn\s*?$|New York,\s*?NY|New York,\s*?New
+          York|New York City|Queens\s*?$|Staten
+          Island\s*?$|Brooklyn,|Bronx,|Queens,/i;
+my $GET_COUNTY_RX = qr/,\s*?(?<county>\w+\s?\w*?\s?\w*?)(?=$)/;
+my $NYC_MANHATTAN_RX =
+  qr/new york|new york city|new york county|manhattan|nyc/i;
+my $NYC_QUEENS_RX   = qr/queens|queens county/i;
+my $NYC_BROOKLYN_RX = qr/kings|brooklyn|brooklyn county/i;
+my $NYC_BRONX_RX    = qr/bronx|bronx county/i;
+my $NYC_SI_RX       = qr/richmond|staten island|richmond county/i;
 
+my $NYC_5_BORO_RX =
+qr/$NYC_MANHATTAN_RX|$NYC_BRONX_RX|$NYC_BROOKLYN_RX|$NYC_QUEENS_RX|$NYC_SI_RX/i;
+my $NYC_OUTER_BORO_RX =
+  qr/$NYC_BRONX_RX|$NYC_BROOKLYN_RX|$NYC_QUEENS_RX|$NYC_SI_RX/i;
+
+#------ Fixed travel time in New York City
+my $NYC_INTER_BORO_TT  = 45;
+my $NYC_WITHIN_BORO_TT = 30;
 my %MY_ERRORS;
 
 #------ Google Matrix Element status codes
@@ -52,9 +70,13 @@ my $OK           = q/OK/;
 my $NOT_FOUND    = q/NOT_FOUND/;
 my $ZERO_RESULTS = q/ZERO_RESULTS/;
 
+#----- Quickfix for a Dancer2 bug not being able to read Config file
+set layout => 'main';
+
 #---- Connect to Database
 hook before => sub {
     connect_to_cities() unless $DBH;
+    error 'Didnt get the DBH!' unless $DBH;
 };
 
 #-------------------------------------------------------------------------------
@@ -85,7 +107,6 @@ get $TRAVEL_TIME_START => sub {
         info_message        => config->{Display}{intro_message},
         travel_time_start   => $TRAVEL_TIME_START
       };
-
 };
 
 #-------------------------------------------------------------------------------
@@ -203,11 +224,10 @@ ajax '/city_states' => sub {
     debug 'Using AJAX,  because it makes everything wonderful.';
 
     #------ Trim  whitespace from lhs and append the '%' SQL match char.
-    #       This will handle searches like 'Sunn,      New York'
-    #       or                             'Kew Gar,      New York'
+    #       This will handle searches like 'Sunn,      New York' (Sunnyside, New York)
+    #       or                             'Kew Gar,      New York' (Key Gardens,  New York)
     #       or                             'Kew,New York'
     my @find_params =
-
       map { $_ =~ s/^\s+//; s/\s+\z//; $_ . '%' }
       split( ',', params->{find} );
     debug 'The find params array now contains : ' . dump @find_params;
@@ -215,16 +235,20 @@ ajax '/city_states' => sub {
     my $csc_arr;
 
     #------ Allow some short cuts for the Big Apple
-    if ( $find_params[0] =~ /^(nyc|manhattan|new york|base)%\z/i ) {
+    if ( $find_params[0] =~ /^(nyc|manhattan|base)%\z/i ) {
         $csc_arr->[0] = [ 'New York City', 'New York', 'New York County' ];
     }
     else {
 
-        #----- Search DB for City and Counties matching the
+        #----- Search DB for City and Counties matching the search params.
         connect_to_cities() unless $DBH;
-        return redirect $TRAVEL_TIME_QUICK unless $DBH;
+        process_error( { Error => 'Unable to connect to the City, State,
+                county database! Please try later!', } ) unless $DBH;
         $csc_arr = select_city_state_cty( $DBH, \@find_params );
     }
+
+    #------ Returns sorted list of Cities, States and Counties to
+    #       city-states.js
     { city_states => $csc_arr };
 };
 
@@ -232,6 +256,8 @@ ajax '/city_states' => sub {
 #   Wrong route
 #-------------------------------------------------------------------------------
 any qr{.*} => sub {
+
+    #------ All bad routes to to the Quick Calculator for now
     return redirect $TRAVEL_TIME_QUICK;
 };
 
@@ -249,6 +275,7 @@ get '/error_page/:vars' => sub {
     };
 };
 
+#-------------------------------------------------------------------------------
 #
 #                           Subroutines
 #
@@ -256,6 +283,11 @@ get '/error_page/:vars' => sub {
 #  Prepare error messages.
 #-------------------------------------------------------------------------------
 sub process_error {
+    my $errors = shift;
+    for my $err (keys %errors){
+     $MY_ERRORS{$err} = $errors{$err};
+    }
+
     if ( keys %MY_ERRORS ) {
         error "Got these errors : \n" . dump %MY_ERRORS;
     }
@@ -269,13 +301,11 @@ sub process_error {
 }
 
 #-------------------------------------------------------------------------------
-#  Create Form
+#  Create  FormBuilder Form
 #-------------------------------------------------------------------------------
 sub create_address_form {
     my $params = shift;
-
     my $address_form;
-
     try {
         $address_form = Mover::Form::Travel::Matrix->new( fif_from_value => 1 );
     }
@@ -322,7 +352,7 @@ sub create_final_template {
         debug 'We are using the quick form.';
     }
     my $template;
-    if ( (keys %MY_ERRORS )or (not $mover_distance_results )) {
+    if ( ( keys %MY_ERRORS ) or ( not $mover_distance_results ) ) {
 
         #------ Failure
         %$template_vars = (
@@ -429,6 +459,7 @@ sub get_all_itinerary_data {
     #
     my $Gm = get_google_travel_matrix();
     return unless $Gm;
+
     my $goog_matrix_results = get_google_matrix_data( $Gm, $itinerary_array )
       if $Gm;
     return unless $goog_matrix_results;
@@ -436,21 +467,19 @@ sub get_all_itinerary_data {
         if ( $goog_mx_el_result->{element_status} eq $OK ) {
             my $mover_travel_time_minutes;
 
+            #------Get the origin and destination county
+            (
+                $goog_mx_el_result->{origin_county},
+                $goog_mx_el_result->{destination_county}
+            ) = get_origin_and_dest_county($goog_mx_el_result);
+
             #------Get the travel time and the running total travel time
             #      To and from NYC use different metrics for converting
-            #
-            if (   is_address_nyc( $goog_mx_el_result->{origin_address} )
-                || is_address_nyc( $goog_mx_el_result->{destination_address} ) )
-            {
-                $total_mover_travel_time_minutes += $mover_travel_time_minutes =
-                  convert_miles_to_travel_time_nyc(
-                    $goog_mx_el_result->{distance_in_miles} );
-            }
-            else {
-                $total_mover_travel_time_minutes += $mover_travel_time_minutes =
-                  convert_miles_to_travel_time(
-                    $goog_mx_el_result->{distance_in_miles} );
-            }
+            #      Use the Original address sent to Google, as it contains the
+            #      county info.
+            #todo Process NYC times for the old long form style calculation
+            $total_mover_travel_time_minutes += $mover_travel_time_minutes =
+              calculate_travel_time($goog_mx_el_result);
 
             %$goog_mx_el_result = (
                 %$goog_mx_el_result,
@@ -485,16 +514,16 @@ sub get_google_travel_matrix {
 sub get_google_matrix_data {
     my $GoogTrMatrix = shift;
     croak 'Must pass Google::Travel::Matrix object! ' unless $GoogTrMatrix;
-    my $itinerary_arr = shift;
-    croak 'Must pass an Itinerary array! ' unless $itinerary_arr;
+    my $itinerary_array = shift;
+    croak 'Must pass an Itinerary array! ' unless $itinerary_array;
     my ( @results_arr, @elements );
+    debug 'My input itinerary details are : ' . dump $itinerary_array;
+
     try {
 
         #------ Treat the first itinerary address as the origin
-        #       this is the only way that the first 20 miles rule
-        #       works for now.
-        $GoogTrMatrix->origins( shift @$itinerary_arr );
-        $GoogTrMatrix->destinations($itinerary_arr);
+        $GoogTrMatrix->origins( shift @$itinerary_array );
+        $GoogTrMatrix->destinations($itinerary_array);
         @elements = @{ $GoogTrMatrix->get_all_elements() };
     }
     catch {
@@ -502,29 +531,152 @@ sub get_google_matrix_data {
         $MY_ERRORS{goog_matrix_addresses} = "Got an error with the addresses. ";
     };
 
-    foreach my $itinerary (@elements) {
+    foreach my $distance_element (@elements) {
 
         #------ Google gives the distance value in meters. It gives a text
         #       value in metric or imperial measurement, but the meters value
         #       is consistant.
 
         push @results_arr, {
-            origin_address         => $itinerary->{origin_address},
-            destination_address    => $itinerary->{destination_address},
-            element_status         => $itinerary->{element_status},
-            element_duration_text  => $itinerary->{element_duration_text},
-            element_duration_value => $itinerary->{element_duration_value},
-            element_distance_text  => $itinerary->{element_distance_text},
+            origin_address      => $distance_element->{origin_address},
+            destination_address => $distance_element->{destination_address},
+            original_origin_address =>
+              $distance_element->{original_origin_address},
+            original_destination_address =>
+              $distance_element->{original_destination_address},
+            element_status        => $distance_element->{element_status},
+            element_duration_text => $distance_element->{element_duration_text},
+            element_duration_value =>
+              $distance_element->{element_duration_value},
+            element_distance_text => $distance_element->{element_distance_text},
 
             #------ This distance is ALWAYS in Meters.
-            element_distance_value => $itinerary->{element_distance_value},
-            distance_in_miles      => convert_from_meters_to_miles(
-                $itinerary->{element_distance_value}
+            element_distance_value =>
+              $distance_element->{element_distance_value},
+            distance_in_miles => convert_from_meters_to_miles(
+                $distance_element->{element_distance_value}
             ),
         };
     }
-
+    debug 'The results array is ' . dump @results_arr;
     return \@results_arr;
+}
+#
+#-------------------------------------------------------------------------------
+#  Get Origin and Destination County's
+#  Pass the Google Matrix Data
+#  Return list of origin county and dest county.
+#-------------------------------------------------------------------------------
+sub get_origin_and_dest_county {
+    my $matrix_data = shift;
+    return (
+        get_county( $matrix_data->{original_origin_address} ),
+        get_county( $matrix_data->{original_destination_address} )
+    );
+}
+
+#-------------------------------------------------------------------------------
+#  Get County
+#  Pass the original User Inputted Address
+#-------------------------------------------------------------------------------
+sub get_county {
+    my $city_state_county = shift;
+    if ( $city_state_county =~ /$GET_COUNTY_RX/ ) {
+        return $+{county};
+    }
+}
+
+#-------------------------------------------------------------------------------
+#   calculate_travel_time
+#  Calculate the travel time between two locations.
+#  Different metrics used for points originating or ending in New York
+#  New York needs special processing
+#  1. If Origin or Destination is NYC, then the first 20 miles is 1 hour
+#  2. If Origin or Destination is NYC, and the same Borough, then travel time
+#     is half hour(30 mins).
+#  3. If Origin or Destination is NYC, and the different Borough, then travel time
+#     is 45 mins.
+#
+#     Pass one Google Matrix Element result (contains one from and one to
+#     address as well as distances etc.)
+#     Only works when the county is included with the Google Data
+#-------------------------------------------------------------------------------
+sub calculate_travel_time {
+    my $goog_data = shift;
+
+    my $orig_county = $goog_data->{origin_county};
+    my $dest_county = $goog_data->{destination_county};
+
+    #------Get the origin and destination county if not stored already
+    ( $orig_county, $dest_county ) = get_origin_and_dest_county($goog_data)
+      unless ( $orig_county && $dest_county );
+
+  NYC_SWITCH: {
+
+        #------- Inside Manhattan?
+        (        ( $orig_county =~ qr/^$NYC_MANHATTAN_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_MANHATTAN_RX$/ ) )
+          && do {
+            return $NYC_WITHIN_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+        #------- Inside Brooklyn?
+        (        ( $orig_county =~ qr/^$NYC_BROOKLYN_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_BROOKLYN_RX$/ ) )
+          && do {
+            return $NYC_WITHIN_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+        #------- Inside Bronx?
+        (        ( $orig_county =~ qr/^$NYC_BRONX_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_BRONX_RX$/ ) )
+          && do {
+            return $NYC_WITHIN_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+        #------- Inside Queens?
+        (        ( $orig_county =~ qr/^$NYC_QUEENS_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_QUEENS_RX$/ ) )
+          && do {
+            return $NYC_WITHIN_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+        #------- Inside Staten Island?
+        (        ( $orig_county =~ qr/^$NYC_SI_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_SI_RX$/ ) )
+          && do {
+            return $NYC_WITHIN_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+   #------ Not within a Borough,  It may be from one Borough to another Borough?
+        (        ( $orig_county =~ qr/^$NYC_5_BORO_RX$/ )
+              && ( $dest_county =~ qr/^$NYC_5_BORO_RX$/ ) )
+          && do {
+            return $NYC_INTER_BORO_TT;
+            last NYC_SWITCH;
+          };
+
+      #------ Not within a Borough,  Not withihin the 5 Boroughs,  maybe one
+      #       location  is within the 5 Boroughs and one location is outside the
+      #       city?
+        (        ( $orig_county =~ qr/^$NYC_5_BORO_RX$/ )
+              || ( $dest_county =~ qr/^$NYC_5_BORO_RX$/ ) )
+          && do {
+            return convert_miles_to_travel_time_nyc(
+                $goog_data->{distance_in_miles} );
+            last NYC_SWITCH;
+          };
+
+        last NYC_SWITCH;
+    };    #------ END NYC LOOP
+
+    #------ No location within the 5 boroughs of NYC
+    return convert_miles_to_travel_time( $goog_data->{distance_in_miles} );
 }
 
 #-------------------------------------------------------------------------------
@@ -543,10 +695,7 @@ sub is_address_nyc {
     debug $address . ' is in New York State';
 
     return $TRUE
-      if (
-        $address =~ /Bronx,|Brooklyn,|New York,\s*?NY|New York,\s*?New
-          York|New York City|Queens,|Staten Island,/i
-      );
+      if ( $address =~ /$IS_IT_NYC_RX/ );
 
     #------ If there is a zip code and it is a NYC
     #       zip, we are lucky(or not depending on your perspective).
@@ -677,7 +826,8 @@ sub validate_quick_form {
     for my $p ( keys %$in_params ) {
         my @city_state_cty = split( ',', $in_params->{$p} );
         @city_state_cty =
-#          grep {/\P{IsAlpha}| |\-/}
+
+          #          grep {/\P{IsAlpha}| |\-/}
           grep { /\w| |\-/ }
           map { s/^\s+//; s/\s+\z//; $_ } @city_state_cty;
 

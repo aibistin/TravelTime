@@ -1,10 +1,15 @@
-use Test::More tests => 8;
+use Test::More;
 use strict;
 use warnings;
-
 # the order is important
-use TravelTime;
+use lib '../lib/';
+use_ok 'TravelTime';
 use Dancer2::Test;
+use Test::LeakTrace;
+use Log::Any::Adapter qw/Stdout/;
+use Log::Log4perl qw(:easy);
+Log::Log4perl->easy_init($DEBUG);
+
 
 route_exists [GET => '/'], 'a route handler is defined for /';
 response_status_is ['GET' => '/'], 200, 'response status is 200 for /';

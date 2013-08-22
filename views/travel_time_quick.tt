@@ -167,20 +167,21 @@
           [% FOREACH mt_result_h IN mover_distance_results -%]
           <tr>
            <td>[% loop.count %]</td>
-            <td>[%- mt_result_h.origin_address -%] </td>
-            <td>[%- mt_result_h.destination_address -%] </td>
+            <td>[%- mt_result_h.origin_address -%] ([%- mt_result_h.origin_county -%]) </td>
+            <td>[%- mt_result_h.destination_address -%] ([%- mt_result_h.destination_county -%])</td>
             <td>[%- mt_result_h.distance_in_miles  -%] </td>
             <td>[%- mt_result_h.element_status  -%] </td>
+            [%- mt_result_h.mover_travel_time.hours.defined ?  mt_result_h.mover_travel_time.hours : 0 -%]
             [% IF mt_result_h.mover_travel_time.minutes %]
               <td>
-                [%- mt_result_h.mover_travel_time.hours -%]
-                [%- mt_result_h.mover_travel_time.hours  > 1 ? " hours" : " hour" %]
+                [%- mt_result_h.mover_travel_time.hours > 0  ?  mt_result_h.mover_travel_time.hours : "" -%]
+                [%- mt_result_h.mover_travel_time.hours  > 1 ? " hours" : mt_result_h.mover_travel_time.hours  == 1 ? " hour" : ""  -%] 
 
                 [% mt_result_h.mover_travel_time.minutes -%] minutes.
               </td>
             [% ELSE %]
               <td>
-                [%- mt_result_h.mover_travel_time.hours.defined ?  mt_result_h.mover_travel_time.hours : 0 -%]
+                [%- mt_result_h.mover_travel_time.hours > 0  ?  mt_result_h.mover_travel_time.hours : "" -%]
                 [%-   mt_result_h.mover_travel_time.hours  > 1 ? " hours" :
                 mt_result_h.mover_travel_time.hours  == 1 ? " hour" : ""  -%] 
               </td>
@@ -193,11 +194,12 @@
                [% travel_time_mins = (total_travel_time_mins % 60) %]
           <tr>
             <td colspan="6">
-              Total Travel Time: [% travel_time_hours %] hours
+              Total Travel Time: [% travel_time_hours %]
+                [%- travel_time.hours  > 1 ? " hours" :
+                travel_time.hours  < 1 ? " hours" : " hour"  -%] 
               [% IF  travel_time_mins %]
-                [% travel_time_mins %] minutes
+                [% travel_time_mins %] minutes.
               [% END %]
-              .
            </td>
           </tr>
         </tbody>

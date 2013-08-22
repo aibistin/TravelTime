@@ -9,8 +9,8 @@
 
   <!-- Bootstrap File Upload CSS  -->
   <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/bootstrap.min.css" /> 
-  <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/jasny-bootstrap.min.css" /> 
-  <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/jasny-bootstrap-responsive.min.css" /> 
+  <!-- <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/jasny-bootstrap.min.css" />   -->
+  <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/bootstrap-responsive.min.css" /> 
   <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/bootstrap-popover.min.css" /> 
   <link rel="stylesheet" href="[% request.uri_base %]/css/bootstrap/bootstrap-tooltip.min.css" /> 
   <!-- My Css -->
@@ -34,7 +34,8 @@
     <small> Powered by  <a href="http://perl.org/">Perl</a> 
       <a href="https://metacpan.org/module/Dancer2">Dancer2</a> 
       <a href="http://twitter.github.io/bootstrap/index.html">Bootstrap</a> 
-      <a href="http://jasny.github.io/bootstrap/index.html">Jasny Bootstrap</a> 
+     <!--  <a href="http://jasny.github.io/bootstrap/index.html">Jasny
+         Bootstrap</a>  -->
       <a href="https://jquery.org/">jQuery</a> 
     </small>
   </div>
